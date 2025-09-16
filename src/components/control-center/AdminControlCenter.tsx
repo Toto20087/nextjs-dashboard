@@ -67,8 +67,10 @@ export const AdminControlCenter = () => {
   const { data: backtestHistory, isLoading: isLoadingHistory } = useQuery({
     queryKey: ['admin-backtest-history'],
     queryFn: async () => {
-      const response = await vectorBtService.backtests.getHistory();
-      return response.data;
+      const response = await fetch('/api/backtests');
+      if (!response.ok) throw new Error('Failed to fetch backtest history');
+      const result = await response.json();
+      return result.data;
     },
     refetchInterval: 30000,
     retry: 2,

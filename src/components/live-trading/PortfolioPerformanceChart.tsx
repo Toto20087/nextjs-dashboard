@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 type TimePeriod = '1D' | '1W' | '1M' | '1Y' | 'YTD';
@@ -16,75 +17,119 @@ interface ChartDataPoint {
   spyChange: number;
 }
 
+
+
+
 export const PortfolioPerformanceChart = () => {
-  const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('1D');
+  const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('1M');
 
-  // Mock data - in real app this would come from API
-  const generateMockData = (period: TimePeriod): ChartDataPoint[] => {
-    const now = new Date();
-    let days = 1;
-    let dataPoints = 24; // hourly for 1D
-    
+  // Map period to Alpaca API format
+  const mapPeriodToAlpaca = (period: TimePeriod) => {
     switch (period) {
-      case '1D':
-        days = 1;
-        dataPoints = 24;
-        break;
-      case '1W':
-        days = 7;
-        dataPoints = 7;
-        break;
-      case '1M':
-        days = 30;
-        dataPoints = 30;
-        break;
-      case '1Y':
-        days = 365;
-        dataPoints = 52; // weekly data points
-        break;
-      case 'YTD':
-        days = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / (1000 * 60 * 60 * 24));
-        dataPoints = Math.min(days, 52);
-        break;
+      case '1D': return '1D';
+      case '1W': return '7D';  
+      case '1M': return '1M';
+      case '1Y': return '1Y';
+      case 'YTD': return 'all';
+      default: return '1M';
     }
-
-    const data: ChartDataPoint[] = [];
-    const basePortfolio = 1000000; // $1M starting value
-    const baseSpy = 100; // Normalized SPY starting value
-    
-    for (let i = dataPoints; i >= 0; i--) {
-      const date = new Date(now.getTime() - i * (days / dataPoints) * 24 * 60 * 60 * 1000);
-      
-      // Generate realistic but volatile performance data
-      const portfolioVolatility = 0.02 + Math.random() * 0.03; // 2-5% daily volatility
-      const spyVolatility = 0.01 + Math.random() * 0.02; // 1-3% daily volatility
-      
-      const portfolioTrend = 1 + (Math.random() - 0.45) * portfolioVolatility; // Slight positive bias
-      const spyTrend = 1 + (Math.random() - 0.48) * spyVolatility; // Slight positive bias
-      
-      const prevPortfolio = i === dataPoints ? basePortfolio : data[data.length - 1]?.portfolio || basePortfolio;
-      const prevSpy = i === dataPoints ? baseSpy : data[data.length - 1]?.spy || baseSpy;
-      
-      const portfolio = prevPortfolio * portfolioTrend;
-      const spy = prevSpy * spyTrend;
-      
-      const portfolioChange = ((portfolio - basePortfolio) / basePortfolio) * 100;
-      const spyChange = ((spy - baseSpy) / baseSpy) * 100;
-      
-      data.push({
-        date: period === '1D' ? date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        portfolio: Math.round(portfolio),
-        spy: Number(spy.toFixed(2)),
-        portfolioChange: Number(portfolioChange.toFixed(2)),
-        spyChange: Number(spyChange.toFixed(2))
-      });
-    }
-    
-    return data;
   };
 
-  const chartData = generateMockData(selectedPeriod);
+  // Fetch portfolio history (market-mosaic style)
+  const { data: portfolioHistory, isLoading: portfolioLoading, error: portfolioError } = useQuery({
+    queryKey: ['portfolio-history', selectedPeriod],
+    queryFn: async () => {
+      const response = await fetch(`/api/account/portfolio?period=${mapPeriodToAlpaca(selectedPeriod)}`);
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch portfolio history');
+      }
+      return result.data;
+    },
+    refetchInterval: 300000, // Refresh every 5 minutes like market-mosaic
+    staleTime: 120000, // Consider data stale after 2 minutes
+  });
+
+  // Fetch current account data for real-time portfolio value
+  const { data: currentAccountData } = useQuery({
+    queryKey: ['current-account-data'],
+    queryFn: async () => {
+      const response = await fetch('/api/portfolio/account');
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch current account data');
+      }
+      return result.data;
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds for real-time data
+    staleTime: 15000,
+  });
+
+  // Fetch real SPY historical data (like market-mosaic)
+  const { data: spyData, isLoading: spyLoading, error: spyError } = useQuery({
+    queryKey: ['spy-historical', selectedPeriod],
+    queryFn: async () => {
+      const response = await fetch(`/api/market-data/SPY/history?timeframe=1Day&limit=30`);
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch SPY data');
+      }
+      return result.data?.bars || [];
+    },
+    refetchInterval: 300000, // Refresh every 5 minutes
+    staleTime: 120000, // Consider data stale after 2 minutes
+  });
+
+  const isLoading = portfolioLoading || spyLoading;
+  const error = portfolioError || spyError;
+
+  // Create portfolio vs SPY comparison data (exact same as market-mosaic)
+  const chartData = useMemo(() => {
+    if (!portfolioHistory || portfolioHistory.length === 0 || !spyData || spyData.length === 0) {
+      return [];
+    }
+
+    // Calculate initial values for percentage calculations
+    const initialPortfolio = portfolioHistory[0].portfolio;
+    const initialSPY = spyData[0]?.close || 450; // Use first SPY close price
+    
+    // Create aligned data with both portfolio and SPY values
+    const alignedData = [];
+    const maxLength = Math.min(portfolioHistory.length, spyData.length);
+    
+    for (let i = 0; i < maxLength; i++) {
+      const portfolioItem = portfolioHistory[i];
+      const spyItem = spyData[i];
+      
+      if (portfolioItem?.portfolio && spyItem?.close) {
+        const portfolioValue = portfolioItem.portfolio;
+        const spyValue = spyItem.close;
+        
+        // Calculate percentage returns relative to start
+        const portfolioChange = initialPortfolio > 0 
+          ? ((portfolioValue - initialPortfolio) / initialPortfolio) * 100
+          : 0;
+        
+        const spyChange = initialSPY > 0
+          ? ((spyValue - initialSPY) / initialSPY) * 100
+          : 0;
+        
+        alignedData.push({
+          date: portfolioItem.date, // Already formatted like "Aug 12"
+          portfolio: Math.round(portfolioValue),
+          spy: Number(spyValue.toFixed(2)),
+          portfolioChange: Number(portfolioChange.toFixed(2)),
+          spyChange: Number(spyChange.toFixed(2))
+        });
+      }
+    }
+    
+    return alignedData;
+  }, [portfolioHistory, spyData]);
+
   const latestData = chartData[chartData.length - 1];
+  
+  // Get current portfolio performance from API data
   const portfolioPerformance = latestData?.portfolioChange || 0;
   const spyPerformance = latestData?.spyChange || 0;
   const outperformance = portfolioPerformance - spyPerformance;
@@ -103,10 +148,10 @@ export const PortfolioPerformanceChart = () => {
     return `${sign}${value.toFixed(2)}%`;
   };
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ dataKey: string; value: number }>; label?: string }) => {
     if (active && payload && payload.length) {
-      const portfolioData = payload.find((p: any) => p.dataKey === 'portfolio');
-      const spyData = payload.find((p: any) => p.dataKey === 'spy');
+      const portfolioData = payload.find((p) => p.dataKey === 'portfolioChange');
+      const spyData = payload.find((p) => p.dataKey === 'spyChange');
       
       return (
         <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
@@ -114,11 +159,11 @@ export const PortfolioPerformanceChart = () => {
           <div className="space-y-1">
             <div className="flex items-center justify-between gap-4">
               <span className="text-sm text-primary">Portfolio:</span>
-              <span className="text-sm font-mono">{formatCurrency(portfolioData?.value)}</span>
+              <span className="text-sm font-mono">{formatPercentage(portfolioData?.value || 0)}</span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <span className="text-sm text-muted-foreground">SPY:</span>
-              <span className="text-sm font-mono">${spyData?.value}</span>
+              <span className="text-sm font-mono">{formatPercentage(spyData?.value || 0)}</span>
             </div>
           </div>
         </div>
@@ -126,6 +171,50 @@ export const PortfolioPerformanceChart = () => {
     }
     return null;
   };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <Card className="trading-card">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="w-5 h-5" />
+            Portfolio Performance vs SPY
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center h-80">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Loading portfolio data...
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <Card className="trading-card">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="w-5 h-5" />
+            Portfolio Performance vs SPY
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center h-80">
+            <div className="text-center text-muted-foreground">
+              <p className="text-destructive mb-2">Failed to load portfolio data</p>
+              <p className="text-sm">Please check your Alpaca API configuration</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="trading-card">
@@ -201,8 +290,8 @@ export const PortfolioPerformanceChart = () => {
                 axisLine={false}
                 tickLine={false}
                 tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
-                domain={['dataMin - 1000', 'dataMax + 1000']}
-                tickFormatter={(value) => selectedPeriod === '1D' && typeof value === 'number' ? formatCurrency(value) : value}
+                domain={['dataMin - 1', 'dataMax + 1']}
+                tickFormatter={(value) => typeof value === 'number' ? `${value.toFixed(1)}%` : value}
               />
               <Tooltip content={<CustomTooltip />} />
               <Legend 
@@ -211,22 +300,22 @@ export const PortfolioPerformanceChart = () => {
               />
               <Line
                 type="monotone"
-                dataKey="portfolio"
+                dataKey="portfolioChange"
                 stroke="hsl(var(--primary))"
                 strokeWidth={2.5}
                 dot={false}
                 activeDot={{ r: 4, stroke: 'hsl(var(--primary))', strokeWidth: 2, fill: 'hsl(var(--background))' }}
-                name="Portfolio Value"
+                name="Portfolio Return %"
               />
               <Line
                 type="monotone"
-                dataKey="spy"
+                dataKey="spyChange"
                 stroke="hsl(var(--muted-foreground))"
                 strokeWidth={2}
                 strokeDasharray="5 5"
                 dot={false}
                 activeDot={{ r: 4, stroke: 'hsl(var(--muted-foreground))', strokeWidth: 2, fill: 'hsl(var(--background))' }}
-                name="SPY Benchmark"
+                name="SPY Return %"
               />
             </LineChart>
           </ResponsiveContainer>
@@ -235,7 +324,13 @@ export const PortfolioPerformanceChart = () => {
         <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-border">
           <div className="text-center">
             <div className="text-sm text-muted-foreground">Current Value</div>
-            <div className="text-lg font-semibold financial-data">{formatCurrency(latestData?.portfolio || 0)}</div>
+            <div className="text-lg font-semibold financial-data">
+              {formatCurrency(
+                currentAccountData?.portfolioValue 
+                  ? parseFloat(currentAccountData.portfolioValue)
+                  : latestData?.portfolio || 0
+              )}
+            </div>
           </div>
           <div className="text-center">
             <div className="text-sm text-muted-foreground">Total Return</div>

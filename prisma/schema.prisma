@@ -1,0 +1,1355 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["metrics"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model accounts {
+  id                  Int       @id @default(autoincrement())
+  user_id             Int
+  provider            String    @db.VarChar(50)
+  provider_account_id String    @db.VarChar(255)
+  access_token        String?
+  refresh_token       String?
+  id_token            String?
+  token_type          String?   @db.VarChar(50)
+  scope               String?
+  expires_at          BigInt?
+  session_state       String?
+  created_at          DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime? @default(now()) @db.Timestamptz(6)
+  users               users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([provider, provider_account_id])
+  @@index([user_id], map: "idx_accounts_user")
+}
+
+model alerts {
+  id              Int       @id @default(autoincrement())
+  alert_type      String    @db.VarChar(50)
+  severity        String    @db.VarChar(20)
+  title           String    @db.VarChar(200)
+  message         String
+  source_type     String?   @db.VarChar(20)
+  source_id       String?   @db.VarChar(50)
+  recipients      String[]
+  status          String?   @default("active") @db.VarChar(20)
+  acknowledged_by String?   @db.VarChar(100)
+  acknowledged_at DateTime? @db.Timestamptz(6)
+  resolved_by     String?   @db.VarChar(100)
+  resolved_at     DateTime? @db.Timestamptz(6)
+  email_sent      Boolean?  @default(false)
+  slack_sent      Boolean?  @default(false)
+  sms_sent        Boolean?  @default(false)
+  alert_data      Json?
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([created_at], map: "idx_alerts_created")
+  @@index([severity], map: "idx_alerts_severity")
+  @@index([source_type, source_id], map: "idx_alerts_source")
+  @@index([status], map: "idx_alerts_status")
+  @@index([alert_type], map: "idx_alerts_type")
+}
+
+model api_keys {
+  id                    Int             @id @default(autoincrement())
+  key_id                String          @unique @db.VarChar(100)
+  key_hash              String          @db.VarChar(255)
+  user_id               Int
+  name                  String          @db.VarChar(100)
+  description           String?
+  permissions           Json            @default("[]")
+  allowed_ips           String[]        @db.Inet
+  allowed_origins       String[]
+  rate_limit_per_minute Int?            @default(60)
+  rate_limit_per_hour   Int?            @default(1000)
+  last_used_at          DateTime?       @db.Timestamptz(6)
+  last_used_ip          String?         @db.Inet
+  usage_count           BigInt?         @default(0)
+  expires_at            DateTime?       @db.Timestamptz(6)
+  is_active             Boolean?        @default(true)
+  revoked_at            DateTime?       @db.Timestamptz(6)
+  revoked_reason        String?
+  created_at            DateTime?       @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime?       @default(now()) @db.Timestamptz(6)
+  users                 users           @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  audit_actions         audit_actions[]
+
+  @@index([key_id], map: "idx_api_keys_key_id")
+  @@index([user_id], map: "idx_api_keys_user")
+}
+
+model api_rate_limits {
+  id                    Int       @id @default(autoincrement())
+  api_name              String    @db.VarChar(50)
+  endpoint              String?   @db.VarChar(255)
+  requests_per_minute   Int
+  requests_per_hour     Int?
+  requests_per_day      Int?
+  current_minute_count  Int?      @default(0)
+  current_hour_count    Int?      @default(0)
+  current_day_count     Int?      @default(0)
+  minute_reset_at       DateTime? @db.Timestamptz(6)
+  hour_reset_at         DateTime? @db.Timestamptz(6)
+  day_reset_at          DateTime? @db.Timestamptz(6)
+  is_rate_limited       Boolean?  @default(false)
+  rate_limit_expires_at DateTime? @db.Timestamptz(6)
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([api_name], map: "idx_api_rate_limits_api")
+  @@index([api_name, endpoint], map: "idx_api_rate_limits_endpoint")
+  @@index([is_rate_limited], map: "idx_api_rate_limits_limited")
+}
+
+model audit_actions {
+  id             Int       @id @default(autoincrement())
+  user_id        Int?
+  session_id     Int?
+  api_key_id     Int?
+  action_type    String    @db.VarChar(100)
+  resource_type  String?   @db.VarChar(50)
+  resource_id    String?   @db.VarChar(100)
+  ip_address     String?   @db.Inet
+  user_agent     String?
+  request_method String?   @db.VarChar(10)
+  request_path   String?
+  success        Boolean?  @default(true)
+  error_code     String?   @db.VarChar(50)
+  error_message  String?
+  request_data   Json?
+  response_data  Json?
+  timestamp      DateTime? @default(now()) @db.Timestamptz(6)
+  api_keys       api_keys? @relation(fields: [api_key_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sessions       sessions? @relation(fields: [session_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users          users?    @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([resource_type, resource_id], map: "idx_audit_actions_resource")
+  @@index([action_type, timestamp], map: "idx_audit_actions_type")
+  @@index([user_id, timestamp], map: "idx_audit_actions_user")
+}
+
+model audit_log {
+  id         BigInt    @id @default(autoincrement())
+  actor      String?
+  action     String
+  context    Json?     @default("{}")
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model authorization_codes {
+  id              Int       @id @default(autoincrement())
+  user_id         Int?
+  code_hash       String    @db.VarChar(255)
+  action_type     String    @db.VarChar(50)
+  expires_at      DateTime  @db.Timestamptz(6)
+  used_at         DateTime? @db.Timestamptz(6)
+  used_for_action String?   @db.VarChar(100)
+  ip_address      String?   @db.Inet
+  user_agent      String?
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  users           users?    @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([action_type], map: "idx_authorization_codes_action")
+  @@index([expires_at], map: "idx_authorization_codes_expiry")
+  @@index([user_id], map: "idx_authorization_codes_user")
+}
+
+model backtest_equity_curve {
+  id            BigInt         @id @default(autoincrement())
+  timestamp     DateTime       @db.Timestamptz(6)
+  run_id        Int?
+  equity_value  Decimal?       @db.Decimal(15, 2)
+  drawdown_pct  Decimal?       @db.Decimal(8, 4)
+  backtest_runs backtest_runs? @relation(fields: [run_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([run_id, timestamp], map: "idx_equity_run_time")
+}
+
+model backtest_metrics {
+  id                 Int                      @id @default(autoincrement())
+  run_id             Int?
+  total_return       Decimal?                 @db.Decimal(10, 6)
+  annualized_return  Decimal?                 @db.Decimal(10, 6)
+  sharpe_ratio       Decimal?                 @db.Decimal(8, 4)
+  sortino_ratio      Decimal?                 @db.Decimal(8, 4)
+  max_drawdown       Decimal?                 @db.Decimal(10, 6)
+  win_rate           Decimal?                 @db.Decimal(5, 4)
+  profit_factor      Decimal?                 @db.Decimal(10, 4)
+  total_trades       Int?
+  winning_trades     Int?
+  losing_trades      Int?
+  avg_win            Decimal?                 @db.Decimal(15, 4)
+  avg_loss           Decimal?                 @db.Decimal(15, 4)
+  best_trade         Decimal?                 @db.Decimal(15, 4)
+  worst_trade        Decimal?                 @db.Decimal(15, 4)
+  avg_trade_duration Unsupported("interval")?
+  total_commission   Decimal?                 @db.Decimal(15, 2)
+  net_profit         Decimal?                 @db.Decimal(15, 2)
+  backtest_runs      backtest_runs?           @relation(fields: [run_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model backtest_runs {
+  id                                                                Int                     @id @default(autoincrement())
+  job_id                                                            String                  @db.Uuid
+  backtest_symbols                                                  Int?
+  start_date                                                        DateTime                @db.Date
+  end_date                                                          DateTime                @db.Date
+  initial_capital                                                   Decimal                 @db.Decimal(15, 2)
+  status                                                            String?                 @default("running") @db.VarChar(20)
+  created_at                                                        DateTime?               @default(now()) @db.Timestamptz(6)
+  completed_at                                                      DateTime?               @db.Timestamptz(6)
+  strategy_id                                                       Int?
+  strategy_config                                                   Json
+  backtest_equity_curve                                             backtest_equity_curve[]
+  backtest_metrics                                                  backtest_metrics[]
+  backtest_symbols_backtest_runs_backtest_symbolsTobacktest_symbols backtest_symbols?       @relation("backtest_runs_backtest_symbolsTobacktest_symbols", fields: [backtest_symbols], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  strategies                                                        strategies?             @relation(fields: [strategy_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  backtest_symbols_backtest_symbols_backtest_idTobacktest_runs      backtest_symbols[]      @relation("backtest_symbols_backtest_idTobacktest_runs")
+  backtest_trades                                                   backtest_trades[]
+}
+
+model backtest_symbols {
+  id                                                             Int             @id @default(autoincrement())
+  backtest_id                                                    Int?
+  symbol                                                         Int?
+  backtest_runs_backtest_runs_backtest_symbolsTobacktest_symbols backtest_runs[] @relation("backtest_runs_backtest_symbolsTobacktest_symbols")
+  symbols                                                        symbols?        @relation(fields: [symbol], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  backtest_runs_backtest_symbols_backtest_idTobacktest_runs      backtest_runs?  @relation("backtest_symbols_backtest_idTobacktest_runs", fields: [backtest_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_backtest_symbols_backtest_id")
+}
+
+model backtest_trades {
+  id             BigInt         @id @default(autoincrement())
+  run_id         Int?
+  symbol         Int?
+  timestamp      DateTime       @db.Timestamptz(6)
+  side           String         @db.VarChar(4)
+  quantity       Decimal        @db.Decimal(15, 8)
+  price          Decimal        @db.Decimal(15, 4)
+  value          Decimal        @db.Decimal(15, 2)
+  commission     Decimal?       @default(0) @db.Decimal(10, 2)
+  pnl            Decimal?       @db.Decimal(15, 2)
+  cumulative_pnl Decimal?       @db.Decimal(15, 2)
+  position_size  Decimal?       @db.Decimal(15, 8)
+  backtest_runs  backtest_runs? @relation(fields: [run_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  symbols        symbols?       @relation(fields: [symbol], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([run_id, symbol], map: "idx_trades_run_symbol")
+  @@index([timestamp], map: "idx_trades_timestamp")
+}
+
+model backtests {
+  id           Int        @id @default(autoincrement())
+  strategy_id  Int
+  config       Json
+  period_start DateTime   @db.Date
+  period_end   DateTime   @db.Date
+  total_return Decimal?   @db.Decimal(7, 4)
+  sharpe_ratio Decimal?   @db.Decimal(5, 2)
+  max_drawdown Decimal?   @db.Decimal(7, 4)
+  total_trades Int?
+  win_rate     Decimal?   @db.Decimal(5, 2)
+  created_at   DateTime?  @default(now()) @db.Timestamptz(6)
+  strategies   strategies @relation(fields: [strategy_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_backtests_created")
+  @@index([strategy_id], map: "idx_backtests_strategy")
+}
+
+model broker_sync_status {
+  id                     Int       @id @default(autoincrement())
+  sync_type              String    @db.VarChar(50)
+  last_sync_timestamp    DateTime? @db.Timestamptz(6)
+  next_sync_timestamp    DateTime? @db.Timestamptz(6)
+  sync_frequency_minutes Int?      @default(5)
+  status                 String?   @default("pending") @db.VarChar(20)
+  error_message          String?
+  retry_count            Int?      @default(0)
+  sync_data              Json?
+  created_at             DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([next_sync_timestamp], map: "idx_broker_sync_status_next_sync")
+  @@index([status], map: "idx_broker_sync_status_status")
+  @@index([sync_type], map: "idx_broker_sync_status_type")
+}
+
+model emergency_halts {
+  id                                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  halt_type                                 String    @db.VarChar(50)
+  initiated_by                              Int?
+  reason                                    String
+  scope                                     String    @db.VarChar(20)
+  scope_details                             Json?
+  is_active                                 Boolean?  @default(true)
+  resolved_at                               DateTime? @db.Timestamptz(6)
+  resolved_by                               Int?
+  resolution_notes                          String?
+  halt_data                                 Json?
+  created_at                                DateTime? @default(now()) @db.Timestamptz(6)
+  users_emergency_halts_initiated_byTousers users?    @relation("emergency_halts_initiated_byTousers", fields: [initiated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_emergency_halts_resolved_byTousers  users?    @relation("emergency_halts_resolved_byTousers", fields: [resolved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([is_active], map: "idx_emergency_halts_active")
+  @@index([created_at], map: "idx_emergency_halts_created")
+  @@index([initiated_by], map: "idx_emergency_halts_initiator")
+  @@index([halt_type], map: "idx_emergency_halts_type")
+}
+
+model executions {
+  id             BigInt     @id @default(autoincrement())
+  execution_id   String     @unique
+  order_id       BigInt?
+  position_id    BigInt?
+  symbol_id      Int
+  symbol         String
+  side           String
+  quantity       Decimal    @db.Decimal(15, 6)
+  price          Decimal    @db.Decimal(15, 2)
+  commission     Decimal?   @db.Decimal(10, 2)
+  fees           Decimal?   @db.Decimal(10, 2)
+  total_cost     Decimal?   @db.Decimal(15, 2)
+  executed_at    DateTime   @db.Timestamptz(6)
+  settled_at     DateTime?  @db.Timestamptz(6)
+  venue          String?
+  execution_type String?
+  metadata       Json?
+  created_at     DateTime?  @default(now()) @db.Timestamptz(6)
+  symbols        symbols    @relation(fields: [symbol_id], references: [id], onUpdate: NoAction)
+  orders         orders?    @relation(fields: [order_id], references: [id], onUpdate: NoAction, map: "fk_executions_order_id")
+  positions      positions? @relation(fields: [position_id], references: [id], onUpdate: NoAction, map: "fk_executions_position_id")
+
+  @@index([order_id], map: "idx_executions_order")
+  @@index([position_id], map: "idx_executions_position")
+  @@index([executed_at], map: "idx_executions_time")
+}
+
+model feature_flags {
+  id                 Int       @id @default(autoincrement())
+  feature_name       String    @unique @db.VarChar(100)
+  is_enabled         Boolean?  @default(false)
+  rollout_percentage Decimal?  @default(0) @db.Decimal(5, 2)
+  target_users       String[]
+  target_roles       String[]
+  description        String?
+  created_by         String?   @db.VarChar(100)
+  is_active          Boolean?  @default(true)
+  created_at         DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([is_active], map: "idx_feature_flags_active")
+  @@index([is_enabled], map: "idx_feature_flags_enabled")
+  @@index([feature_name], map: "idx_feature_flags_name")
+}
+
+model global_market_regime {
+  id                                                                 Int           @id @default(autoincrement())
+  current_regime_id                                                  Int
+  regime_confidence                                                  Decimal       @db.Decimal(5, 2)
+  spy_return_20d                                                     Decimal?      @db.Decimal(7, 4)
+  spy_volatility_20d                                                 Decimal?      @db.Decimal(7, 4)
+  vix_level                                                          Decimal?      @db.Decimal(7, 2)
+  volume_ratio                                                       Decimal?      @db.Decimal(5, 2)
+  regime_start_date                                                  DateTime      @db.Timestamptz(6)
+  previous_regime_id                                                 Int?
+  regime_duration_hours                                              Int?
+  detection_algorithm                                                String?       @default("rust_spy_analysis") @db.VarChar(50)
+  last_analysis_timestamp                                            DateTime?     @default(now()) @db.Timestamptz(6)
+  next_analysis_scheduled                                            DateTime?     @db.Timestamptz(6)
+  created_at                                                         DateTime?     @default(now()) @db.Timestamptz(6)
+  updated_at                                                         DateTime?     @default(now()) @db.Timestamptz(6)
+  regime_types_global_market_regime_current_regime_idToregime_types  regime_types  @relation("global_market_regime_current_regime_idToregime_types", fields: [current_regime_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  regime_types_global_market_regime_previous_regime_idToregime_types regime_types? @relation("global_market_regime_previous_regime_idToregime_types", fields: [previous_regime_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([last_analysis_timestamp], map: "idx_global_regime_analysis")
+  @@index([current_regime_id], map: "idx_global_regime_current")
+}
+
+model login_history {
+  id             Int       @id @default(autoincrement())
+  user_id        Int?
+  email          String?   @db.VarChar(255)
+  success        Boolean
+  failure_reason String?   @db.VarChar(100)
+  auth_method    String?   @db.VarChar(50)
+  ip_address     String?   @db.Inet
+  country        String?   @db.VarChar(2)
+  region         String?   @db.VarChar(100)
+  city           String?   @db.VarChar(100)
+  user_agent     String?
+  device_type    String?   @db.VarChar(50)
+  browser        String?   @db.VarChar(50)
+  os             String?   @db.VarChar(50)
+  is_suspicious  Boolean?  @default(false)
+  risk_score     Decimal?  @db.Decimal(3, 2)
+  timestamp      DateTime? @default(now()) @db.Timestamptz(6)
+  users          users?    @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([email, timestamp], map: "idx_login_history_email")
+  @@index([is_suspicious, timestamp], map: "idx_login_history_suspicious")
+  @@index([user_id, timestamp], map: "idx_login_history_user")
+}
+
+model market_data {
+  id          Int       @id @default(autoincrement())
+  symbol_id   Int
+  symbol      String    @db.VarChar(10)
+  timestamp   DateTime  @db.Timestamptz(6)
+  open        Decimal?  @db.Decimal(15, 2)
+  high        Decimal?  @db.Decimal(15, 2)
+  low         Decimal?  @db.Decimal(15, 2)
+  close       Decimal?  @db.Decimal(15, 2)
+  volume      BigInt?
+  vwap        Decimal?  @db.Decimal(15, 2)
+  trade_count Int?
+  data_source String?   @default("polygon") @db.VarChar(50)
+  timeframe   String    @db.VarChar(10)
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  symbols     symbols   @relation(fields: [symbol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([symbol], map: "idx_market_data_symbol_text")
+  @@index([symbol_id, timeframe, timestamp], map: "idx_market_data_symbol_time")
+  @@index([timeframe, timestamp], map: "idx_market_data_timeframe")
+  @@index([timestamp], map: "idx_market_data_timestamp")
+}
+
+model market_sessions {
+  id                    Int                     @id @default(autoincrement())
+  session_name          String                  @unique @db.VarChar(50)
+  start_time_utc        DateTime                @db.Time(6)
+  end_time_utc          DateTime                @db.Time(6)
+  timezone              String?                 @default("America/New_York") @db.VarChar(50)
+  is_primary_session    Boolean?                @default(false)
+  liquidity_factor      Decimal?                @default(1.0) @db.Decimal(3, 2)
+  risk_multiplier       Decimal?                @default(1.0) @db.Decimal(3, 2)
+  active_days           Int[]
+  is_active             Boolean?                @default(true)
+  created_at            DateTime?               @default(now()) @db.Timestamptz(6)
+  strategy_market_hours strategy_market_hours[]
+
+  @@index([is_primary_session], map: "idx_market_sessions_primary")
+}
+
+model market_status {
+  id                Int       @id @default(autoincrement())
+  market            String    @db.VarChar(20)
+  status            String    @db.VarChar(20)
+  session_start     DateTime? @db.Timestamptz(6)
+  session_end       DateTime? @db.Timestamptz(6)
+  pre_market_start  DateTime? @db.Timestamptz(6)
+  pre_market_end    DateTime? @db.Timestamptz(6)
+  after_hours_start DateTime? @db.Timestamptz(6)
+  after_hours_end   DateTime? @db.Timestamptz(6)
+  is_holiday        Boolean?  @default(false)
+  holiday_name      String?   @db.VarChar(100)
+  early_close       Boolean?  @default(false)
+  early_close_time  DateTime? @db.Timestamptz(6)
+  notes             String?
+  last_updated      DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model monte_carlo_results {
+  id                  Int        @id @default(autoincrement())
+  strategy_id         Int
+  num_simulations     Int
+  simulation_days     Int
+  confidence_level    Decimal    @db.Decimal(3, 2)
+  expected_return     Decimal?   @db.Decimal(7, 4)
+  var_estimate        Decimal?   @db.Decimal(15, 2)
+  expected_shortfall  Decimal?   @db.Decimal(15, 2)
+  max_drawdown_95     Decimal?   @db.Decimal(7, 4)
+  probability_of_loss Decimal?   @db.Decimal(5, 2)
+  return_distribution Json?
+  created_at          DateTime?  @default(now()) @db.Timestamptz(6)
+  strategies          strategies @relation(fields: [strategy_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_monte_carlo_created")
+  @@index([strategy_id], map: "idx_monte_carlo_strategy")
+}
+
+model news_articles {
+  id               Int       @id @default(autoincrement())
+  external_id      String?   @unique @db.VarChar(255)
+  title            String
+  content          String?
+  source           String?   @db.VarChar(100)
+  url              String?
+  published_at     DateTime? @db.Timestamptz(6)
+  category         String?   @db.VarChar(50)
+  sentiment_score  Decimal?  @db.Decimal(3, 2)
+  confidence_score Decimal?  @db.Decimal(3, 2)
+  relevance_score  Decimal?  @db.Decimal(3, 2)
+  impact_score     Decimal?  @db.Decimal(3, 2)
+  processed        Boolean?  @default(false)
+  processed_at     DateTime? @db.Timestamptz(6)
+  tags             String[]
+  metadata         Json?
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+  symbol_id        Int?
+  symbols          symbols?  @relation(fields: [symbol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([symbol_id], map: "idx_news_articles_symbol")
+  @@index([symbol_id, published_at(sort: Desc)], map: "idx_news_articles_symbol_published")
+  @@index([category], map: "idx_news_category")
+  @@index([external_id], map: "idx_news_external_id")
+  @@index([processed], map: "idx_news_processed")
+  @@index([published_at], map: "idx_news_published")
+  @@index([sentiment_score], map: "idx_news_sentiment")
+  @@index([tags], map: "idx_news_tags", type: Gin)
+}
+
+model orders {
+  id              BigInt       @id @default(autoincrement())
+  signal_id       String?      @db.Uuid
+  symbol_id       Int
+  status          String       @default("pending")
+  limit_price     Decimal?     @db.Decimal(20, 8)
+  filled_price    Decimal?     @db.Decimal(20, 8)
+  filled_quantity Decimal?     @default(0) @db.Decimal(20, 8)
+  realized_pnl    Decimal?     @db.Decimal(20, 8)
+  created_at      DateTime?    @default(now()) @db.Timestamptz(6)
+  filled_at       DateTime?    @db.Timestamptz(6)
+  executions      executions[]
+  signals         signals?     @relation(fields: [signal_id], references: [id], onUpdate: NoAction)
+  symbols         symbols      @relation(fields: [symbol_id], references: [id], onUpdate: NoAction)
+}
+
+model performance_metrics {
+  id                 Int                      @id @default(autoincrement())
+  metric_type        String                   @db.VarChar(50)
+  entity_id          String?                  @db.VarChar(50)
+  period_start       DateTime                 @db.Timestamptz(6)
+  period_end         DateTime                 @db.Timestamptz(6)
+  total_return       Decimal?                 @db.Decimal(7, 4)
+  annualized_return  Decimal?                 @db.Decimal(7, 4)
+  volatility         Decimal?                 @db.Decimal(7, 4)
+  sharpe_ratio       Decimal?                 @db.Decimal(5, 2)
+  max_drawdown       Decimal?                 @db.Decimal(7, 4)
+  total_trades       Int?
+  win_rate           Decimal?                 @db.Decimal(5, 2)
+  avg_trade_duration Unsupported("interval")?
+  var_95             Decimal?                 @db.Decimal(15, 2)
+  beta               Decimal?                 @db.Decimal(5, 2)
+  alpha              Decimal?                 @db.Decimal(5, 2)
+  custom_metrics     Json?
+  created_at         DateTime?                @default(now()) @db.Timestamptz(6)
+
+  @@index([created_at], map: "idx_performance_metrics_created")
+  @@index([metric_type, entity_id], map: "idx_performance_metrics_entity")
+  @@index([period_start, period_end], map: "idx_performance_metrics_period")
+}
+
+model permissions {
+  id               Int                @id @default(autoincrement())
+  resource         String             @db.VarChar(50)
+  action           String             @db.VarChar(50)
+  description      String?
+  scope            String?            @default("global") @db.VarChar(20)
+  risk_level       String?            @default("low") @db.VarChar(20)
+  requires_2fa     Boolean?           @default(false)
+  is_active        Boolean?           @default(true)
+  created_at       DateTime?          @default(now()) @db.Timestamptz(6)
+  user_permissions user_permissions[]
+
+  @@unique([resource, action, scope])
+}
+
+model position_limits {
+  id                  Int       @id @default(autoincrement())
+  entity_type         String    @db.VarChar(20)
+  entity_id           String    @db.VarChar(50)
+  max_position_size   Decimal?  @db.Decimal(15, 2)
+  max_position_amount Decimal?  @db.Decimal(15, 2)
+  max_sector_exposure Decimal?  @db.Decimal(5, 2)
+  max_correlation     Decimal?  @db.Decimal(3, 2)
+  is_active           Boolean?  @default(true)
+  created_at          DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([is_active], map: "idx_position_limits_active")
+  @@index([entity_type, entity_id], map: "idx_position_limits_entity")
+}
+
+model positions {
+  id          BigInt       @id @default(autoincrement())
+  strategy_id Int?
+  symbol_id   Int
+  quantity    Decimal      @default(0) @db.Decimal(20, 8)
+  avg_price   Decimal?     @db.Decimal(20, 8)
+  is_active   Boolean?     @default(true)
+  updated_at  DateTime?    @default(now()) @db.Timestamptz(6)
+  created_at  DateTime?    @default(now()) @db.Timestamptz(6)
+  executions  executions[]
+  strategies  strategies?  @relation(fields: [strategy_id], references: [id], onUpdate: NoAction)
+  symbols     symbols      @relation(fields: [symbol_id], references: [id], onUpdate: NoAction)
+}
+
+model regime_types {
+  id                                                                         Int                       @id
+  name                                                                       String                    @unique @db.VarChar(50)
+  description                                                                String?
+  is_active                                                                  Boolean?                  @default(true)
+  created_at                                                                 DateTime?                 @default(now()) @db.Timestamptz(6)
+  global_market_regime_global_market_regime_current_regime_idToregime_types  global_market_regime[]    @relation("global_market_regime_current_regime_idToregime_types")
+  global_market_regime_global_market_regime_previous_regime_idToregime_types global_market_regime[]    @relation("global_market_regime_previous_regime_idToregime_types")
+  strategy_ticker_regimes                                                    strategy_ticker_regimes[]
+}
+
+model risk_alert_history {
+  id              Int         @id @default(autoincrement())
+  risk_alert_id   Int
+  previous_status String      @db.VarChar(20)
+  new_status      String      @db.VarChar(20)
+  changed_by      String?     @db.VarChar(100)
+  change_reason   String?
+  created_at      DateTime?   @default(now()) @db.Timestamptz(6)
+  risk_alerts     risk_alerts @relation(fields: [risk_alert_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([risk_alert_id], map: "idx_risk_alert_history_alert")
+  @@index([created_at], map: "idx_risk_alert_history_created")
+}
+
+model risk_alerts {
+  id                 Int                  @id @default(autoincrement())
+  alert_type         String               @db.VarChar(50)
+  severity           String               @db.VarChar(20)
+  entity_type        String               @db.VarChar(20)
+  entity_id          String               @db.VarChar(50)
+  current_value      Decimal?             @db.Decimal(15, 2)
+  threshold_value    Decimal?             @db.Decimal(15, 2)
+  breach_percentage  Decimal?             @db.Decimal(7, 4)
+  status             String?              @default("active") @db.VarChar(20)
+  acknowledged_by    String?              @db.VarChar(100)
+  acknowledged_at    DateTime?            @db.Timestamptz(6)
+  alert_data         Json?
+  created_at         DateTime?            @default(now()) @db.Timestamptz(6)
+  risk_alert_history risk_alert_history[]
+
+  @@index([entity_type, entity_id], map: "idx_risk_alerts_entity")
+  @@index([severity], map: "idx_risk_alerts_severity")
+  @@index([status], map: "idx_risk_alerts_status")
+  @@index([alert_type], map: "idx_risk_alerts_type")
+}
+
+model risk_control_actions {
+  id                                             Int       @id @default(autoincrement())
+  action_type                                    String    @db.VarChar(50)
+  initiated_by                                   Int?
+  target_type                                    String    @db.VarChar(20)
+  target_id                                      String    @db.VarChar(50)
+  action_data                                    Json
+  reason                                         String
+  status                                         String?   @default("pending") @db.VarChar(20)
+  executed_at                                    DateTime? @db.Timestamptz(6)
+  execution_result                               Json?
+  requires_approval                              Boolean?  @default(false)
+  approved_by                                    Int?
+  approved_at                                    DateTime? @db.Timestamptz(6)
+  created_at                                     DateTime? @default(now()) @db.Timestamptz(6)
+  users_risk_control_actions_approved_byTousers  users?    @relation("risk_control_actions_approved_byTousers", fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_risk_control_actions_initiated_byTousers users?    @relation("risk_control_actions_initiated_byTousers", fields: [initiated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([initiated_by], map: "idx_risk_control_actions_initiator")
+  @@index([status], map: "idx_risk_control_actions_status")
+  @@index([target_type, target_id], map: "idx_risk_control_actions_target")
+  @@index([action_type], map: "idx_risk_control_actions_type")
+}
+
+model risk_events {
+  id                Int          @id @default(autoincrement())
+  event_type        String       @db.VarChar(50)
+  severity          String       @db.VarChar(20)
+  source_type       String?      @db.VarChar(20)
+  source_id         String?      @db.VarChar(50)
+  risk_limit_id     Int?
+  current_value     Decimal?     @db.Decimal(15, 2)
+  limit_value       Decimal?     @db.Decimal(15, 2)
+  breach_percentage Decimal?     @db.Decimal(7, 4)
+  action_taken      String?      @db.VarChar(100)
+  resolved_at       DateTime?    @db.Timestamptz(6)
+  resolved_by       String?      @db.VarChar(100)
+  event_data        Json?
+  notes             String?
+  created_at        DateTime?    @default(now()) @db.Timestamptz(6)
+  risk_limits       risk_limits? @relation(fields: [risk_limit_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([resolved_at], map: "idx_risk_events_resolved")
+  @@index([severity], map: "idx_risk_events_severity")
+  @@index([source_type, source_id], map: "idx_risk_events_source")
+  @@index([created_at], map: "idx_risk_events_time")
+  @@index([event_type], map: "idx_risk_events_type")
+}
+
+model risk_limits {
+  id                 Int           @id @default(autoincrement())
+  scope_type         String        @db.VarChar(20)
+  scope_id           String?       @db.VarChar(50)
+  limit_type         String        @db.VarChar(50)
+  limit_value        Decimal       @db.Decimal(15, 2)
+  warning_threshold  Decimal?      @db.Decimal(15, 2)
+  is_active          Boolean?      @default(true)
+  is_breached        Boolean?      @default(false)
+  breach_count       Int?          @default(0)
+  last_breach_time   DateTime?     @db.Timestamptz(6)
+  enforcement_action String?       @default("alert") @db.VarChar(50)
+  override_allowed   Boolean?      @default(false)
+  created_at         DateTime?     @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime?     @default(now()) @db.Timestamptz(6)
+  risk_events        risk_events[]
+
+  @@index([is_active], map: "idx_risk_limits_active")
+  @@index([is_breached], map: "idx_risk_limits_breached")
+  @@index([scope_type, scope_id], map: "idx_risk_limits_scope")
+  @@index([limit_type], map: "idx_risk_limits_type")
+}
+
+model risk_metrics {
+  id                    Int       @id @default(autoincrement())
+  entity_type           String    @db.VarChar(20)
+  entity_id             String    @db.VarChar(50)
+  calculation_date      DateTime  @db.Date
+  var_95                Decimal?  @db.Decimal(15, 2)
+  var_99                Decimal?  @db.Decimal(15, 2)
+  expected_shortfall    Decimal?  @db.Decimal(15, 2)
+  max_drawdown          Decimal?  @db.Decimal(7, 4)
+  volatility            Decimal?  @db.Decimal(7, 4)
+  beta                  Decimal?  @db.Decimal(5, 2)
+  largest_position_pct  Decimal?  @db.Decimal(5, 2)
+  top_5_positions_pct   Decimal?  @db.Decimal(5, 2)
+  sector_concentration  Json?
+  portfolio_correlation Decimal?  @db.Decimal(3, 2)
+  market_correlation    Decimal?  @db.Decimal(3, 2)
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([calculation_date], map: "idx_risk_metrics_date")
+  @@index([entity_type, entity_id], map: "idx_risk_metrics_entity")
+}
+
+model roles {
+  id             Int       @id @default(autoincrement())
+  name           String    @unique @db.VarChar(50)
+  display_name   String    @db.VarChar(100)
+  description    String?
+  permissions    Json      @default("[]")
+  priority       Int?      @default(100)
+  parent_role    String?   @db.VarChar(50)
+  is_active      Boolean?  @default(true)
+  is_system_role Boolean?  @default(false)
+  created_at     DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model scheduled_tasks {
+  id                 Int       @id @default(autoincrement())
+  task_type          String    @db.VarChar(50)
+  scheduled_for      DateTime  @db.Timestamptz(6)
+  task_config        Json
+  priority           Int?      @default(5)
+  status             String?   @default("pending") @db.VarChar(20)
+  started_at         DateTime? @db.Timestamptz(6)
+  completed_at       DateTime? @db.Timestamptz(6)
+  result_data        Json?
+  error_message      String?
+  retry_count        Int?      @default(0)
+  max_retries        Int?      @default(3)
+  is_recurring       Boolean?  @default(false)
+  recurrence_pattern String?   @db.VarChar(100)
+  next_run_at        DateTime? @db.Timestamptz(6)
+  created_at         DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([next_run_at], map: "idx_scheduled_tasks_next_run")
+  @@index([scheduled_for], map: "idx_scheduled_tasks_schedule")
+  @@index([status], map: "idx_scheduled_tasks_status")
+  @@index([task_type], map: "idx_scheduled_tasks_type")
+}
+
+model sessions {
+  id                  Int             @id @default(autoincrement())
+  session_token       String          @unique @db.VarChar(255)
+  user_id             Int
+  ip_address          String?         @db.Inet
+  user_agent          String?
+  device_info         Json?
+  country             String?         @db.VarChar(2)
+  region              String?         @db.VarChar(100)
+  city                String?         @db.VarChar(100)
+  expires_at          DateTime        @db.Timestamptz(6)
+  idle_timeout_at     DateTime?       @db.Timestamptz(6)
+  absolute_timeout_at DateTime?       @db.Timestamptz(6)
+  is_active           Boolean?        @default(true)
+  revoked_at          DateTime?       @db.Timestamptz(6)
+  revoked_reason      String?         @db.VarChar(100)
+  last_activity       DateTime?       @default(now()) @db.Timestamptz(6)
+  request_count       Int?            @default(0)
+  created_at          DateTime?       @default(now()) @db.Timestamptz(6)
+  audit_actions       audit_actions[]
+  users               users           @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([expires_at], map: "idx_sessions_expiry")
+  @@index([session_token], map: "idx_sessions_token")
+  @@index([user_id, is_active], map: "idx_sessions_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model signals {
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  strategy_id             Int
+  symbol_id               Int
+  ticker_symbol           String    @db.VarChar(10)
+  source                  String?   @default("strategy") @db.VarChar(50)
+  signal_type             String    @db.VarChar(10)
+  quantity                Decimal   @db.Decimal(15, 6)
+  urgency                 String?   @default("normal") @db.VarChar(20)
+  confidence_score        Decimal?  @db.Decimal(3, 2)
+  order_type              String?   @default("MARKET") @db.VarChar(20)
+  limit_price             Decimal?  @db.Decimal(15, 2)
+  stop_price              Decimal?  @db.Decimal(15, 2)
+  time_in_force           String?   @default("DAY") @db.VarChar(10)
+  stop_loss               Decimal?  @db.Decimal(15, 2)
+  take_profit             Decimal?  @db.Decimal(15, 2)
+  trail_percent           Decimal?  @db.Decimal(5, 2)
+  trail_amount            Decimal?  @db.Decimal(15, 2)
+  max_slippage            Decimal?  @db.Decimal(5, 4)
+  extended_hours          Boolean?  @default(false)
+  market_session          String?   @db.VarChar(20)
+  processing_status       String?   @default("created") @db.VarChar(20)
+  processing_started_at   DateTime? @db.Timestamp(6)
+  processing_completed_at DateTime? @db.Timestamp(6)
+  processed_by            String?   @db.VarChar(100)
+  failure_reason          String?
+  strategy_config         Json?
+  execution_config        Json?
+  risk_config             Json?
+  metadata                Json?
+  created_at              DateTime? @default(now()) @db.Timestamp(6)
+  updated_at              DateTime? @default(now()) @db.Timestamp(6)
+  orders                  orders[]
+  symbols                 symbols   @relation(fields: [symbol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_signals_created")
+  @@index([created_at(sort: Desc), processing_status], map: "idx_signals_created_status")
+  @@index([source], map: "idx_signals_source")
+  @@index([processing_status], map: "idx_signals_status")
+  @@index([strategy_id], map: "idx_signals_strategy")
+  @@index([strategy_id, processing_status], map: "idx_signals_strategy_status")
+  @@index([symbol_id], map: "idx_signals_symbol")
+  @@index([symbol_id, processing_status], map: "idx_signals_symbol_status")
+  @@index([ticker_symbol], map: "idx_signals_ticker")
+  @@index([signal_type], map: "idx_signals_type")
+  @@index([updated_at], map: "idx_signals_updated")
+  @@index([urgency], map: "idx_signals_urgency")
+}
+
+model strategies {
+  id                         Int                          @id @default(autoincrement())
+  name                       String                       @unique
+  processed_by_rust          Boolean                      @default(true)
+  is_active                  Boolean                      @default(true)
+  created_at                 DateTime?                    @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime?                    @default(now()) @db.Timestamptz(6)
+  backtest_runs              backtest_runs[]
+  backtests                  backtests[]
+  monte_carlo_results        monte_carlo_results[]
+  positions                  positions[]
+  strategy_allocations       strategy_allocations[]
+  strategy_capital_snapshots strategy_capital_snapshots[]
+  strategy_config_parameters strategy_config_parameters?
+  strategy_market_hours      strategy_market_hours[]
+  strategy_parameters        strategy_parameters[]
+  strategy_ticker_regimes    strategy_ticker_regimes[]
+  strategy_validations       strategy_validations[]
+  trading_pauses             trading_pauses[]
+  walk_forward_results       walk_forward_results[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model strategy_allocations {
+  id                    Int        @id @default(autoincrement())
+  strategy_id           Int
+  symbol_id             Int
+  allocated_capital     Decimal    @db.Decimal(15, 2)
+  used_capital          Decimal?   @default(0) @db.Decimal(15, 2)
+  available_capital     Decimal?   @default(dbgenerated("(allocated_capital - used_capital)")) @db.Decimal(15, 2)
+  reserved_capital      Decimal?   @default(0) @db.Decimal(15, 2)
+  current_position      Decimal?   @default(0) @db.Decimal(15, 8)
+  average_cost          Decimal?   @default(0) @db.Decimal(15, 2)
+  realized_pnl          Decimal?   @default(0) @db.Decimal(15, 2)
+  unrealized_pnl        Decimal?   @default(0) @db.Decimal(15, 2)
+  total_trades          Int?       @default(0)
+  winning_trades        Int?       @default(0)
+  allocation_percentage Decimal?   @db.Decimal(5, 2)
+  is_active             Boolean?   @default(true)
+  last_trade_time       DateTime?  @db.Timestamptz(6)
+  created_at            DateTime?  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime?  @default(now()) @db.Timestamptz(6)
+  strategies            strategies @relation(fields: [strategy_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  symbols               symbols    @relation(fields: [symbol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([strategy_id, symbol_id], map: "unique_strategy_symbol_allocation")
+  @@index([strategy_id], map: "idx_strategy_allocations_strategy")
+  @@index([symbol_id], map: "idx_strategy_allocations_symbol")
+}
+
+model strategy_capital_snapshots {
+  id                 Int        @id @default(autoincrement())
+  strategy_id        Int
+  snapshot_version   BigInt
+  allocated_capital  Decimal    @db.Decimal(15, 2)
+  used_capital       Decimal?   @default(0) @db.Decimal(15, 2)
+  available_capital  Decimal    @db.Decimal(15, 2)
+  reserved_capital   Decimal?   @default(0) @db.Decimal(15, 2)
+  ticker_allocations Json
+  realized_pnl       Decimal?   @default(0) @db.Decimal(15, 2)
+  unrealized_pnl     Decimal?   @default(0) @db.Decimal(15, 2)
+  snapshot_reason    String?    @db.VarChar(100)
+  transaction_id     String?    @db.VarChar(100)
+  created_at         DateTime?  @default(now()) @db.Timestamptz(6)
+  strategies         strategies @relation(fields: [strategy_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([strategy_id, snapshot_version])
+  @@index([snapshot_reason], map: "idx_snapshots_reason")
+  @@index([strategy_id, created_at], map: "idx_snapshots_strategy_time")
+}
+
+model strategy_market_hours {
+  id                            Int             @id @default(autoincrement())
+  strategy_id                   Int
+  session_id                    Int
+  is_enabled                    Boolean?        @default(false)
+  position_size_multiplier      Decimal?        @default(1.0) @db.Decimal(3, 2)
+  risk_multiplier               Decimal?        @default(1.0) @db.Decimal(3, 2)
+  persist_state_across_sessions Boolean?        @default(true)
+  reset_on_session_start        Boolean?        @default(false)
+  minimum_bars_required         Int?            @default(20)
+  created_at                    DateTime?       @default(now()) @db.Timestamptz(6)
+  market_sessions               market_sessions @relation(fields: [session_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  strategies                    strategies      @relation(fields: [strategy_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([strategy_id, session_id])
+  @@index([strategy_id], map: "idx_strategy_sessions_strategy")
+}
+
+model strategy_parameters {
+  id                 Int        @id @default(autoincrement())
+  strategy_id        Int
+  parameter_set_name String     @db.VarChar(100)
+  parameters         Json
+  regime_id          Int?
+  is_active          Boolean?   @default(true)
+  created_at         DateTime?  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime?  @default(now()) @db.Timestamptz(6)
+  strategies         strategies @relation(fields: [strategy_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([strategy_id, parameter_set_name])
+  @@index([strategy_id, regime_id], map: "idx_params_regime")
+}
+
+model strategy_ticker_regimes {
+  id                Int          @id @default(autoincrement())
+  strategy_id       Int
+  symbol_id         Int
+  symbol            String       @db.VarChar(10)
+  regime_id         Int
+  regime_parameters Json
+  is_active         Boolean?     @default(true)
+  created_at        DateTime?    @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime?    @default(now()) @db.Timestamptz(6)
+  regime_types      regime_types @relation(fields: [regime_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  strategies        strategies   @relation(fields: [strategy_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  symbols           symbols      @relation(fields: [symbol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([strategy_id, symbol_id, regime_id])
+  @@index([strategy_id, regime_id], map: "idx_ticker_regimes_strategy")
+  @@index([symbol_id], map: "idx_ticker_regimes_symbol")
+}
+
+model strategy_validations {
+  id                 Int        @id @default(autoincrement())
+  strategy_id        Int
+  validation_type    String     @db.VarChar(50)
+  validation_rule    Json
+  is_valid           Boolean
+  validation_message String?
+  validated_at       DateTime?  @default(now()) @db.Timestamptz(6)
+  validated_by       String?    @db.VarChar(100)
+  strategies         strategies @relation(fields: [strategy_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([strategy_id], map: "idx_strategy_validations_strategy")
+  @@index([validation_type], map: "idx_strategy_validations_type")
+}
+
+model symbol_events {
+  id           Int       @id @default(autoincrement())
+  symbol_id    Int
+  event_type   String    @db.VarChar(50)
+  event_date   DateTime  @db.Date
+  description  String?
+  impact_level String?   @db.VarChar(20)
+  event_data   Json?
+  is_processed Boolean?  @default(false)
+  processed_at DateTime? @db.Timestamptz(6)
+  created_at   DateTime? @default(now()) @db.Timestamptz(6)
+  symbols      symbols   @relation(fields: [symbol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([symbol_id, event_date], map: "idx_symbol_events")
+  @@index([event_type, event_date], map: "idx_symbol_events_type")
+}
+
+model symbol_fundamentals {
+  id                   Int       @id @default(autoincrement())
+  symbol_id            Int
+  report_date          DateTime  @db.Date
+  fiscal_period        String?   @db.VarChar(10)
+  pe_ratio             Decimal?  @db.Decimal(10, 2)
+  forward_pe           Decimal?  @db.Decimal(10, 2)
+  peg_ratio            Decimal?  @db.Decimal(10, 2)
+  price_to_book        Decimal?  @db.Decimal(10, 2)
+  price_to_sales       Decimal?  @db.Decimal(10, 2)
+  ev_to_ebitda         Decimal?  @db.Decimal(10, 2)
+  revenue              Decimal?  @db.Decimal(20, 2)
+  gross_profit         Decimal?  @db.Decimal(20, 2)
+  operating_income     Decimal?  @db.Decimal(20, 2)
+  net_income           Decimal?  @db.Decimal(20, 2)
+  eps                  Decimal?  @db.Decimal(10, 4)
+  diluted_eps          Decimal?  @db.Decimal(10, 4)
+  total_assets         Decimal?  @db.Decimal(20, 2)
+  total_liabilities    Decimal?  @db.Decimal(20, 2)
+  total_equity         Decimal?  @db.Decimal(20, 2)
+  cash_and_equivalents Decimal?  @db.Decimal(20, 2)
+  total_debt           Decimal?  @db.Decimal(20, 2)
+  operating_cash_flow  Decimal?  @db.Decimal(20, 2)
+  free_cash_flow       Decimal?  @db.Decimal(20, 2)
+  gross_margin         Decimal?  @db.Decimal(5, 2)
+  operating_margin     Decimal?  @db.Decimal(5, 2)
+  profit_margin        Decimal?  @db.Decimal(5, 2)
+  revenue_growth_yoy   Decimal?  @db.Decimal(7, 4)
+  earnings_growth_yoy  Decimal?  @db.Decimal(7, 4)
+  roe                  Decimal?  @db.Decimal(7, 4)
+  roa                  Decimal?  @db.Decimal(7, 4)
+  roic                 Decimal?  @db.Decimal(7, 4)
+  created_at           DateTime? @default(now()) @db.Timestamptz(6)
+  symbols              symbols   @relation(fields: [symbol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([symbol_id, report_date, fiscal_period])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model symbols {
+  id                             Int                       @id @default(autoincrement())
+  symbol                         String                    @unique
+  name                           String
+  exchange                       String?
+  marginable                     Boolean?                  @default(false)
+  shortable                      Boolean?                  @default(false)
+  fractionable                   Boolean?                  @default(false)
+  created_at                     DateTime?                 @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime?                 @default(now()) @db.Timestamptz(6)
+  type                           String                    @default("stock") @db.VarChar(20)
+  active                         Boolean?                  @default(true)
+  tradable                       Boolean?                  @default(true)
+  primary_exchange               String                    @default("NYSE") @db.VarChar(10)
+  market                         String                    @default("stocks") @db.VarChar(20)
+  currency_name                  String?                   @default("USD") @db.VarChar(10)
+  cik                            String?                   @db.VarChar(10)
+  composite_figi                 String?                   @db.VarChar(12)
+  share_class_figi               String?                   @db.VarChar(12)
+  lei                            String?                   @db.VarChar(20)
+  sic_code                       String?                   @db.VarChar(4)
+  sic_description                String?
+  market_cap_category            String?                   @db.VarChar(20)
+  sector                         String?                   @db.VarChar(100)
+  industry                       String?                   @db.VarChar(100)
+  sub_industry                   String?                   @db.VarChar(100)
+  market_cap                     Decimal?                  @db.Decimal(20, 2)
+  shares_outstanding             BigInt?
+  weighted_shares_outstanding    BigInt?
+  float_shares                   BigInt?
+  round_lot_size                 Int?                      @default(100)
+  min_tick_size                  Decimal?                  @default(0.01) @db.Decimal(10, 6)
+  pre_market_enabled             Boolean?                  @default(false)
+  after_hours_enabled            Boolean?                  @default(false)
+  otc_enabled                    Boolean?                  @default(false)
+  options_enabled                Boolean?                  @default(false)
+  weekly_options                 Boolean?                  @default(false)
+  last_dividend_date             DateTime?                 @db.Date
+  dividend_frequency             String?                   @db.VarChar(20)
+  ex_dividend_date               DateTime?                 @db.Date
+  split_date                     DateTime?                 @db.Date
+  split_ratio                    String?                   @db.VarChar(20)
+  alpaca_asset_id                String?                   @db.Uuid
+  alpaca_asset_class             String?                   @db.VarChar(20)
+  easy_to_borrow                 Boolean?
+  maintenance_margin_requirement Decimal?                  @db.Decimal(5, 2)
+  polygon_ticker_root            String?                   @db.VarChar(10)
+  polygon_locale                 String?                   @default("us") @db.VarChar(10)
+  composite_ticker               String?                   @db.VarChar(20)
+  share_class_ticker             String?                   @db.VarChar(20)
+  last_price                     Decimal?                  @db.Decimal(15, 2)
+  last_price_timestamp           DateTime?                 @db.Timestamp(6)
+  previous_close                 Decimal?                  @db.Decimal(15, 2)
+  day_change                     Decimal?                  @db.Decimal(15, 2)
+  day_change_percent             Decimal?                  @db.Decimal(7, 4)
+  avg_volume_10d                 BigInt?
+  avg_volume_30d                 BigInt?
+  avg_volume_90d                 BigInt?
+  relative_volume                Decimal?                  @db.Decimal(5, 2)
+  beta                           Decimal?                  @db.Decimal(5, 2)
+  correlation_spy                Decimal?                  @db.Decimal(3, 2)
+  volatility_20d                 Decimal?                  @db.Decimal(5, 4)
+  volatility_60d                 Decimal?                  @db.Decimal(5, 4)
+  atr_14                         Decimal?                  @db.Decimal(15, 2)
+  risk_score                     Decimal?                  @db.Decimal(5, 2)
+  liquidity_score                Decimal?                  @db.Decimal(5, 2)
+  news_sentiment_score           Decimal?                  @db.Decimal(3, 2)
+  news_mention_count             Int?
+  social_sentiment_score         Decimal?                  @db.Decimal(3, 2)
+  trading_halted                 Boolean?                  @default(false)
+  halt_reason                    String?                   @db.VarChar(100)
+  halt_timestamp                 DateTime?                 @db.Timestamp(6)
+  delisted                       Boolean?                  @default(false)
+  delisted_date                  DateTime?                 @db.Date
+  is_watched                     Boolean?                  @default(false)
+  is_restricted                  Boolean?                  @default(false)
+  restriction_reason             String?
+  max_position_size              Decimal?                  @db.Decimal(15, 2)
+  data_source                    String?                   @default("polygon") @db.VarChar(50)
+  last_sync_timestamp            DateTime?                 @db.Timestamp(6)
+  sync_status                    String?                   @default("pending") @db.VarChar(20)
+  data_quality_score             Decimal?                  @db.Decimal(3, 2)
+  notes                          String?
+  tags                           String[]
+  custom_data                    Json?
+  backtest_symbols               backtest_symbols[]
+  backtest_trades                backtest_trades[]
+  executions                     executions[]
+  market_data                    market_data[]
+  news_articles                  news_articles[]
+  orders                         orders[]
+  positions                      positions[]
+  signals                        signals[]
+  strategy_allocations           strategy_allocations[]
+  strategy_ticker_regimes        strategy_ticker_regimes[]
+  symbol_events                  symbol_events[]
+  symbol_fundamentals            symbol_fundamentals[]
+  trading_pauses                 trading_pauses[]
+
+  @@index([active], map: "idx_symbols_active")
+  @@index([primary_exchange], map: "idx_symbols_exchange")
+  @@index([market], map: "idx_symbols_market")
+  @@index([market_cap_category], map: "idx_symbols_market_cap")
+  @@index([is_restricted], map: "idx_symbols_restricted")
+  @@index([sector], map: "idx_symbols_sector")
+  @@index([symbol], map: "idx_symbols_symbol")
+  @@index([tradable], map: "idx_symbols_tradable")
+  @@index([type], map: "idx_symbols_type")
+  @@index([updated_at], map: "idx_symbols_updated")
+  @@index([is_watched], map: "idx_symbols_watched")
+}
+
+model system_config {
+  id               Int       @id @default(autoincrement())
+  key              String    @unique @db.VarChar(100)
+  value            String?
+  data_type        String?   @default("string") @db.VarChar(20)
+  description      String?
+  category         String?   @db.VarChar(50)
+  validation_rules Json?
+  is_sensitive     Boolean?  @default(false)
+  is_active        Boolean?  @default(true)
+  requires_restart Boolean?  @default(false)
+  updated_by       String?   @db.VarChar(100)
+  updated_at       DateTime? @default(now()) @db.Timestamptz(6)
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([is_active], map: "idx_system_config_active")
+  @@index([category], map: "idx_system_config_category")
+  @@index([key], map: "idx_system_config_key")
+}
+
+model system_health {
+  id                    Int       @id @default(autoincrement())
+  component             String    @db.VarChar(50)
+  status                String    @db.VarChar(20)
+  response_time_ms      Int?
+  error_rate            Decimal?  @db.Decimal(5, 2)
+  throughput_per_second Decimal?  @db.Decimal(10, 2)
+  last_error            String?
+  error_count           Int?      @default(0)
+  uptime_percentage     Decimal?  @db.Decimal(5, 2)
+  metrics               Json?
+  timestamp             DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([component], map: "idx_system_health_component")
+  @@index([status], map: "idx_system_health_status")
+  @@index([timestamp], map: "idx_system_health_time")
+}
+
+model trading_pauses {
+  id                                       String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pause_type                               String      @db.VarChar(50)
+  scope                                    String?     @db.VarChar(20)
+  strategy_id                              Int?
+  symbol_id                                Int?
+  initiated_by                             Int?
+  reason                                   String
+  duration_minutes                         Int?
+  is_active                                Boolean?    @default(true)
+  started_at                               DateTime?   @default(now()) @db.Timestamptz(6)
+  ends_at                                  DateTime?   @db.Timestamptz(6)
+  ended_at                                 DateTime?   @db.Timestamptz(6)
+  ended_by                                 Int?
+  pause_data                               Json?
+  users_trading_pauses_ended_byTousers     users?      @relation("trading_pauses_ended_byTousers", fields: [ended_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_trading_pauses_initiated_byTousers users?      @relation("trading_pauses_initiated_byTousers", fields: [initiated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  strategies                               strategies? @relation(fields: [strategy_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  symbols                                  symbols?    @relation(fields: [symbol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([is_active], map: "idx_trading_pauses_active")
+  @@index([strategy_id], map: "idx_trading_pauses_strategy")
+  @@index([symbol_id], map: "idx_trading_pauses_symbol")
+  @@index([pause_type], map: "idx_trading_pauses_type")
+}
+
+model two_factor_auth {
+  id              Int       @id @default(autoincrement())
+  user_id         Int       @unique
+  secret          String    @db.VarChar(255)
+  backup_codes    String[]
+  is_enabled      Boolean?  @default(false)
+  enabled_at      DateTime? @db.Timestamptz(6)
+  recovery_email  String?   @db.VarChar(255)
+  recovery_phone  String?   @db.VarChar(20)
+  last_used       DateTime? @db.Timestamptz(6)
+  failed_attempts Int?      @default(0)
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
+  users           users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model user_permissions {
+  id            Int         @id @default(autoincrement())
+  user_id       Int
+  permission_id Int
+  is_granted    Boolean?    @default(true)
+  conditions    Json?
+  expires_at    DateTime?   @db.Timestamptz(6)
+  granted_by    String?     @db.VarChar(100)
+  granted_at    DateTime?   @default(now()) @db.Timestamptz(6)
+  reason        String?
+  permissions   permissions @relation(fields: [permission_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users         users       @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([user_id, permission_id])
+  @@index([user_id], map: "idx_user_permissions_user")
+}
+
+model users {
+  id                                                            Int                    @id @default(autoincrement())
+  clerk_user_id                                                 String?                @unique @db.VarChar(255)
+  email                                                         String                 @unique @db.VarChar(255)
+  email_verified                                                Boolean?               @default(false)
+  name                                                          String                 @db.VarChar(100)
+  avatar_url                                                    String?
+  phone                                                         String?                @db.VarChar(20)
+  timezone                                                      String?                @default("America/New_York") @db.VarChar(50)
+  locale                                                        String?                @default("en-US") @db.VarChar(10)
+  role                                                          String                 @default("viewer") @db.VarChar(50)
+  department                                                    String?                @db.VarChar(50)
+  permissions                                                   Json?                  @default("[]")
+  can_trade                                                     Boolean?               @default(false)
+  can_approve_strategies                                        Boolean?               @default(false)
+  can_override_risk                                             Boolean?               @default(false)
+  max_order_value                                               Decimal?               @db.Decimal(15, 2)
+  is_active                                                     Boolean?               @default(true)
+  is_verified                                                   Boolean?               @default(false)
+  is_two_factor_enabled                                         Boolean?               @default(false)
+  last_login                                                    DateTime?              @db.Timestamptz(6)
+  login_count                                                   Int?                   @default(0)
+  failed_login_attempts                                         Int?                   @default(0)
+  locked_until                                                  DateTime?              @db.Timestamptz(6)
+  password_changed_at                                           DateTime?              @db.Timestamptz(6)
+  preferences                                                   Json?                  @default("{}")
+  notification_settings                                         Json?                  @default("{}")
+  created_at                                                    DateTime?              @default(now()) @db.Timestamptz(6)
+  updated_at                                                    DateTime?              @default(now()) @db.Timestamptz(6)
+  created_by                                                    String?                @db.VarChar(100)
+  terms_accepted_at                                             DateTime?              @db.Timestamptz(6)
+  privacy_accepted_at                                           DateTime?              @db.Timestamptz(6)
+  last_activity                                                 DateTime?              @db.Timestamptz(6)
+  accounts                                                      accounts[]
+  api_keys                                                      api_keys[]
+  audit_actions                                                 audit_actions[]
+  authorization_codes                                           authorization_codes[]
+  emergency_halts_emergency_halts_initiated_byTousers           emergency_halts[]      @relation("emergency_halts_initiated_byTousers")
+  emergency_halts_emergency_halts_resolved_byTousers            emergency_halts[]      @relation("emergency_halts_resolved_byTousers")
+  login_history                                                 login_history[]
+  risk_control_actions_risk_control_actions_approved_byTousers  risk_control_actions[] @relation("risk_control_actions_approved_byTousers")
+  risk_control_actions_risk_control_actions_initiated_byTousers risk_control_actions[] @relation("risk_control_actions_initiated_byTousers")
+  sessions                                                      sessions[]
+  trading_pauses_trading_pauses_ended_byTousers                 trading_pauses[]       @relation("trading_pauses_ended_byTousers")
+  trading_pauses_trading_pauses_initiated_byTousers             trading_pauses[]       @relation("trading_pauses_initiated_byTousers")
+  two_factor_auth                                               two_factor_auth?
+  user_permissions                                              user_permissions[]
+
+  @@index([is_active], map: "idx_users_active")
+  @@index([clerk_user_id], map: "idx_users_clerk_id")
+  @@index([email], map: "idx_users_email")
+  @@index([role], map: "idx_users_role")
+}
+
+model verification_tokens {
+  id         Int       @id @default(autoincrement())
+  identifier String    @db.VarChar(255)
+  token      String    @unique @db.VarChar(255)
+  token_type String    @db.VarChar(50)
+  expires_at DateTime  @db.Timestamptz(6)
+  used_at    DateTime? @db.Timestamptz(6)
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@unique([identifier, token, token_type], map: "idx_verification_unique")
+  @@index([expires_at], map: "idx_verification_expiry")
+  @@index([token], map: "idx_verification_token")
+}
+
+model walk_forward_results {
+  id                       Int        @id @default(autoincrement())
+  strategy_id              Int
+  window_size_days         Int
+  step_size_days           Int
+  optimization_period_days Int
+  period_start             DateTime   @db.Date
+  period_end               DateTime   @db.Date
+  is_optimization_period   Boolean
+  parameters               Json
+  total_return             Decimal?   @db.Decimal(7, 4)
+  sharpe_ratio             Decimal?   @db.Decimal(5, 2)
+  max_drawdown             Decimal?   @db.Decimal(7, 4)
+  total_trades             Int?
+  win_rate                 Decimal?   @db.Decimal(5, 2)
+  created_at               DateTime?  @default(now()) @db.Timestamptz(6)
+  strategies               strategies @relation(fields: [strategy_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([period_start, period_end], map: "idx_walk_forward_period")
+  @@index([strategy_id], map: "idx_walk_forward_strategy")
+}
+
+model strategy_config_parameters {
+  id          Int        @id @default(autoincrement())
+  strategy_id Int        @unique
+  parameters  Json
+  version     String?    @default("1.0") @db.VarChar(10)
+  is_active   Boolean?   @default(true)
+  created_at  DateTime?  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime?  @default(now()) @db.Timestamp(6)
+  strategies  strategies @relation(fields: [strategy_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_strategy_config_parameters_strategy")
+
+  @@index([parameters], map: "idx_strategy_config_parameters_parameters", type: Gin)
+  @@index([strategy_id], map: "idx_strategy_config_parameters_strategy_id")
+}

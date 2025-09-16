@@ -1,0 +1,904 @@
+{
+	"info": {
+		"_postman_id": "trading-dashboard-api",
+		"name": "Trading Dashboard API Collection",
+		"description": "Complete API collection for the Trading Dashboard NextJS application with all endpoints, authentication, and sample requests.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{clerk_jwt_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"pm.test(\"Status code is successful\", function () {",
+					"    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+					"});",
+					"",
+					"pm.test(\"Response has success field\", function () {",
+					"    var jsonData = pm.response.json();",
+					"    pm.expect(jsonData).to.have.property('success');",
+					"});"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "clerk_jwt_token",
+			"value": "your-clerk-jwt-token-here",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Backtest Management",
+			"item": [
+				{
+					"name": "List Backtests",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/backtests?page=1&limit=20&status=completed&strategy=momentum_strategy",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"backtests"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								},
+								{
+									"key": "status",
+									"value": "completed"
+								},
+								{
+									"key": "strategy",
+									"value": "momentum_strategy"
+								},
+								{
+									"key": "startDate",
+									"value": "2024-01-01",
+									"disabled": true
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31",
+									"disabled": true
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Create Backtest",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"strategy\": \"momentum_strategy\",\n  \"symbols\": [\"AAPL\", \"GOOGL\", \"MSFT\"],\n  \"startDate\": \"2024-01-01\",\n  \"endDate\": \"2024-06-30\",\n  \"initialCapital\": 100000,\n  \"parameters\": {\n    \"lookback_period\": 20,\n    \"momentum_threshold\": 0.05,\n    \"position_size\": 0.1,\n    \"stop_loss\": 0.02,\n    \"take_profit\": 0.04\n  },\n  \"compareWithSpy\": true,\n  \"parameterMode\": \"fixed\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/backtests",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"backtests"
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Backtest Queue Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/backtests/queue",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"backtests",
+								"queue"
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Backtest Details",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/backtests/:id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"backtests",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Cancel Backtest",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/backtests/:id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"backtests",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Backtest Results",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/backtests/:id/results",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"backtests",
+								":id",
+								"results"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Market Data",
+			"item": [
+				{
+					"name": "Get Latest Market Data",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/market-data/:symbol",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"market-data",
+								":symbol"
+							],
+							"variable": [
+								{
+									"key": "symbol",
+									"value": "AAPL"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Historical Market Data",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/market-data/:symbol/history?timeframe=1Day&limit=100&start=2024-01-01",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"market-data",
+								":symbol",
+								"history"
+							],
+							"query": [
+								{
+									"key": "timeframe",
+									"value": "1Day"
+								},
+								{
+									"key": "limit",
+									"value": "100"
+								},
+								{
+									"key": "start",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "end",
+									"value": "2024-12-31",
+									"disabled": true
+								}
+							],
+							"variable": [
+								{
+									"key": "symbol",
+									"value": "AAPL"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Trading Signals",
+			"item": [
+				{
+					"name": "List Signals",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/signals?page=1&limit=50&strategy_id=1&side=buy&startDate=2024-01-01",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"signals"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								},
+								{
+									"key": "strategy_id",
+									"value": "1"
+								},
+								{
+									"key": "side",
+									"value": "buy"
+								},
+								{
+									"key": "startDate",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31",
+									"disabled": true
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Signal Details",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/signals/:id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"signals",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Strategy Management",
+			"item": [
+				{
+					"name": "Get Active Strategies",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/strategies/active",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"strategies",
+								"active"
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Strategy Parameters",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/strategies/:id/parameters",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"strategies",
+								":id",
+								"parameters"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Strategy Parameters",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"parameters\": {\n    \"lookback_period\": 25,\n    \"momentum_threshold\": 0.06,\n    \"position_size\": 0.15,\n    \"stop_loss\": 0.03,\n    \"take_profit\": 0.05\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/strategies/:id/parameters",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"strategies",
+								":id",
+								"parameters"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Strategy Config Parameters",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/strategies/:id/config_parameters",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"strategies",
+								":id",
+								"config_parameters"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Strategy Allocations",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/strategies/:id/allocations",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"strategies",
+								":id",
+								"allocations"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Dashboard Analytics",
+			"item": [
+				{
+					"name": "Capital Overview",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/dashboard/capital/overview",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"dashboard",
+								"capital",
+								"overview"
+							]
+						}
+					}
+				},
+				{
+					"name": "Performance Analytics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/dashboard/analytics/performance?period=30d&strategyId=1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"dashboard",
+								"analytics",
+								"performance"
+							],
+							"query": [
+								{
+									"key": "period",
+									"value": "30d"
+								},
+								{
+									"key": "strategyId",
+									"value": "1"
+								},
+								{
+									"key": "startDate",
+									"value": "2024-01-01",
+									"disabled": true
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31",
+									"disabled": true
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Strategy Center",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/dashboard/strategy-center?page=1&limit=20&status=approved",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"dashboard",
+								"strategy-center"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								},
+								{
+									"key": "status",
+									"value": "approved"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Strategy Center Actions",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"strategyId\": 1,\n  \"action\": \"approve\",\n  \"rejectionReason\": null\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/dashboard/strategy-center",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"dashboard",
+								"strategy-center"
+							]
+						}
+					}
+				},
+				{
+					"name": "News Articles",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/dashboard/news/articles?page=1&limit=20&symbol=AAPL&sentiment=positive",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"dashboard",
+								"news",
+								"articles"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								},
+								{
+									"key": "symbol",
+									"value": "AAPL"
+								},
+								{
+									"key": "sentiment",
+									"value": "positive"
+								},
+								{
+									"key": "category",
+									"value": "earnings",
+									"disabled": true
+								},
+								{
+									"key": "source",
+									"value": "reuters",
+									"disabled": true
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Admin Controls",
+			"item": [
+				{
+					"name": "User Management - List Users",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/dashboard/control/users?page=1&limit=50&role=trader&status=active",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"dashboard",
+								"control",
+								"users"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								},
+								{
+									"key": "role",
+									"value": "trader"
+								},
+								{
+									"key": "status",
+									"value": "active"
+								},
+								{
+									"key": "search",
+									"value": "john",
+									"disabled": true
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "User Management - Update User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": 1,\n  \"role\": \"trader\",\n  \"permissions\": {\n    \"canTrade\": true,\n    \"canApproveStrategies\": false,\n    \"canOverrideRisk\": false\n  },\n  \"maxOrderValue\": 50000,\n  \"department\": \"trading\",\n  \"isActive\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/dashboard/control/users",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"dashboard",
+								"control",
+								"users"
+							]
+						}
+					}
+				},
+				{
+					"name": "Audit Trail",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/dashboard/control/audit?page=1&limit=50&action=UPDATE_USER&startDate=2024-01-01",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"dashboard",
+								"control",
+								"audit"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								},
+								{
+									"key": "action",
+									"value": "UPDATE_USER"
+								},
+								{
+									"key": "startDate",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31",
+									"disabled": true
+								},
+								{
+									"key": "actor",
+									"value": "admin",
+									"disabled": true
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "System Health",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/dashboard/control/system-health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"dashboard",
+								"control",
+								"system-health"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Portfolio & Account",
+			"item": [
+				{
+					"name": "Portfolio Positions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/portfolio/positions",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"portfolio",
+								"positions"
+							]
+						}
+					}
+				},
+				{
+					"name": "Account Information",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/portfolio/account",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"portfolio",
+								"account"
+							]
+						}
+					}
+				},
+				{
+					"name": "Account Portfolio (Alternative)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/account/portfolio",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"account",
+								"portfolio"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Reference Data",
+			"item": [
+				{
+					"name": "Get All Symbols",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/symbols",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"symbols"
+							]
+						}
+					}
+				}
+			]
+		}
+	]
+}

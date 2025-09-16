@@ -971,7 +971,7 @@ COMMENT ON TABLE "strategy_allocations" IS 'Replaces ticker_allocations JSONB fi
 -- Create "update_updated_at_column" function
 CREATE FUNCTION "update_updated_at_column" () RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-    NEW.updated_at = NOW();
+    NEW.updated_at = CURRENT_TIMESTAMP;
     RETURN NEW;
 END;
 $$;
@@ -999,6 +999,24 @@ CREATE TABLE "strategy_capital_snapshots" (
 CREATE INDEX "idx_snapshots_reason" ON "strategy_capital_snapshots" ("snapshot_reason");
 -- Create index "idx_snapshots_strategy_time" to table: "strategy_capital_snapshots"
 CREATE INDEX "idx_snapshots_strategy_time" ON "strategy_capital_snapshots" ("strategy_id", "created_at");
+-- Create "strategy_config_parameters" table
+CREATE TABLE "strategy_config_parameters" (
+  "id" serial NOT NULL,
+  "strategy_id" integer NOT NULL,
+  "parameters" jsonb NOT NULL,
+  "version" character varying(10) NULL DEFAULT '1.0',
+  "is_active" boolean NULL DEFAULT true,
+  "created_at" timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY ("id"),
+  CONSTRAINT "strategy_config_parameters_strategy_id_key" UNIQUE ("strategy_id")
+);
+-- Create index "idx_strategy_config_parameters_parameters" to table: "strategy_config_parameters"
+CREATE INDEX "idx_strategy_config_parameters_parameters" ON "strategy_config_parameters" USING gin ("parameters");
+-- Create index "idx_strategy_config_parameters_strategy_id" to table: "strategy_config_parameters"
+CREATE INDEX "idx_strategy_config_parameters_strategy_id" ON "strategy_config_parameters" ("strategy_id");
+-- Create trigger "trigger_strategy_config_parameters_updated_at"
+CREATE TRIGGER "trigger_strategy_config_parameters_updated_at" BEFORE UPDATE ON "strategy_config_parameters" FOR EACH ROW EXECUTE FUNCTION "update_updated_at_column"();
 -- Create "strategy_market_hours" table
 CREATE TABLE "strategy_market_hours" (
   "id" serial NOT NULL,
@@ -1616,6 +1634,8 @@ ALTER TABLE "signals" ADD CONSTRAINT "signals_symbol_id_fkey" FOREIGN KEY ("symb
 ALTER TABLE "strategy_allocations" ADD CONSTRAINT "strategy_allocations_strategy_id_fkey" FOREIGN KEY ("strategy_id") REFERENCES "strategies" ("id") ON UPDATE NO ACTION ON DELETE CASCADE, ADD CONSTRAINT "strategy_allocations_symbol_id_fkey" FOREIGN KEY ("symbol_id") REFERENCES "symbols" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION;
 -- Modify "strategy_capital_snapshots" table
 ALTER TABLE "strategy_capital_snapshots" ADD CONSTRAINT "strategy_capital_snapshots_strategy_id_fkey" FOREIGN KEY ("strategy_id") REFERENCES "strategies" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION;
+-- Modify "strategy_config_parameters" table
+ALTER TABLE "strategy_config_parameters" ADD CONSTRAINT "fk_strategy_config_parameters_strategy" FOREIGN KEY ("strategy_id") REFERENCES "strategies" ("id") ON UPDATE NO ACTION ON DELETE CASCADE;
 -- Modify "strategy_market_hours" table
 ALTER TABLE "strategy_market_hours" ADD CONSTRAINT "strategy_market_hours_session_id_fkey" FOREIGN KEY ("session_id") REFERENCES "market_sessions" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION, ADD CONSTRAINT "strategy_market_hours_strategy_id_fkey" FOREIGN KEY ("strategy_id") REFERENCES "strategies" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION;
 -- Modify "strategy_parameters" table

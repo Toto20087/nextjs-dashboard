@@ -197,24 +197,28 @@ const getPerformanceEvolution = (backtestId: string) => {
 export const StrategyTestingLab = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   
-  // Fetch backtest history from vector-bt API
+  // Fetch backtest history from API
   const { data: backtestHistoryData, isLoading: isLoadingHistory, error: historyError } = useQuery({
     queryKey: ['backtest-history'],
     queryFn: async () => {
-      const response = await vectorBtService.backtests.getHistory();
-      return response.data;
+      const response = await fetch('/api/backtests');
+      if (!response.ok) throw new Error('Failed to fetch backtest history');
+      const result = await response.json();
+      return result.data;
     },
     refetchInterval: 10000, // Poll every 10 seconds for updates
     retry: 2,
     retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 30000),
   });
 
-  // Fetch active backtest jobs
+  // Fetch backtest queue status
   const { data: activeJobsData, isLoading: isLoadingJobs } = useQuery({
-    queryKey: ['backtest-jobs'],
+    queryKey: ['backtest-queue'],
     queryFn: async () => {
-      const response = await vectorBtService.backtests.getJobs();
-      return response.data;
+      const response = await fetch('/api/backtests/queue');
+      if (!response.ok) throw new Error('Failed to fetch backtest queue');
+      const result = await response.json();
+      return result.data;
     },
     refetchInterval: 5000, // Poll every 5 seconds for job updates
     retry: 2,

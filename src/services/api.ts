@@ -1,10 +1,9 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
 import { useAuth } from "@clerk/clerk-react";
-import { env } from "node:process";
 
 // Create axios instance with default configuration
 const api: AxiosInstance = axios.create({
-  baseURL: env.VITE_API_URL || "/api",
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "/api",
   timeout: 10000,
   headers: {
     "Content-Type": "application/json",
@@ -46,7 +45,7 @@ export const useApiClient = () => {
   const { getToken } = useAuth();
 
   const authenticatedApi = axios.create({
-    baseURL: env.VITE_API_URL || "/api",
+    baseURL: process.env.NEXT_PUBLIC_API_URL || "/api",
     timeout: 10000,
     headers: {
       "Content-Type": "application/json",
@@ -95,6 +94,18 @@ export const apiService = {
       api.post(`/strategies/${id}/backtest`, params),
   },
 
+  // Portfolio endpoints
+  portfolio: {
+    getAccount: (params?: any) => api.get("/portfolio/account", { params }),
+  },
+
+  // Market data endpoints
+  marketData: {
+    getHistoricalBars: (symbol: string, params?: any) => 
+      api.get(`/market-data/${symbol}/history`, { params }),
+    getQuote: (symbol: string) => api.get(`/market-data/${symbol}`),
+  },
+
   // Analytics endpoints
   analytics: {
     getPerformance: (params?: any) =>
@@ -120,8 +131,6 @@ export const apiService = {
 export const vectorBtService = {
   // Backtest endpoints
   backtests: {
-    getHistory: () => api.get("/backtest/jobs"),
-    getJobs: () => api.get("/backtest/jobs"),
     getJob: (jobId: string) => api.get(`/backtest/${jobId}`),
     runBacktest: (params: any) => api.post("/backtest", params),
     findBestTickers: (params: any) =>
