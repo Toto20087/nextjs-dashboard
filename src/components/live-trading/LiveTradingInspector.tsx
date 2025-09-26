@@ -1,23 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { Progress } from '../ui/progress';
 import { 
   Activity, 
   TrendingUp, 
-  TrendingDown, 
-  Clock, 
-  DollarSign, 
   Target,
   BarChart3,
-  Play,
-  Pause,
   RefreshCw,
   Eye
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useQuery } from '@tanstack/react-query';
 
 interface Trade {
   id: string;
@@ -51,125 +45,174 @@ interface LiveTradingInspectorProps {
   selectedStrategy?: string | null;
 }
 
+// Data transformation utilities
+interface ApiTrade {
+  id: string;
+  symbol: string;
+  side: string;
+  quantity: number;
+  price: number;
+  commission?: number;
+  fees?: number;
+  executedAt: string;
+  strategyName?: string;
+}
+
+interface ApiPosition {
+  symbol: string;
+  market_value: string;
+  qty: string;
+}
+
+const transformApiTradeToComponentTrade = (apiTrade: ApiTrade, positions: ApiPosition[] = []): Trade => {
+  // Find current market price from positions if available
+  const position = positions.find(p => p.symbol === apiTrade.symbol);
+  const currentPrice = position?.market_value && position?.qty 
+    ? parseFloat(position.market_value) / parseFloat(position.qty)
+    : apiTrade.price; // Fallback to execution price
+
+  // Calculate duration from executed_at to now
+  const executedAt = new Date(apiTrade.executedAt);
+  const now = new Date();
+  const durationMs = now.getTime() - executedAt.getTime();
+  const hours = Math.floor(durationMs / (1000 * 60 * 60));
+  const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
+  const duration = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+
+  // Calculate real-time P&L
+  const quantity = apiTrade.quantity;
+  const entryPrice = apiTrade.price;
+  const priceDiff = currentPrice - entryPrice;
+  const pnl = apiTrade.side.toLowerCase() === 'buy' 
+    ? quantity * priceDiff - (apiTrade.commission || 0) - (apiTrade.fees || 0)
+    : quantity * -priceDiff - (apiTrade.commission || 0) - (apiTrade.fees || 0);
+  const pnlPercent = entryPrice > 0 ? (priceDiff / entryPrice) * 100 : 0;
+
+  return {
+    id: apiTrade.id,
+    strategy: apiTrade.strategyName || 'Unknown Strategy',
+    symbol: apiTrade.symbol,
+    side: apiTrade.side.toUpperCase() as 'BUY' | 'SELL',
+    quantity: quantity,
+    entryPrice: entryPrice,
+    currentPrice: currentPrice,
+    pnl: pnl,
+    pnlPercent: pnlPercent,
+    entryTime: executedAt.toLocaleTimeString('en-US', { hour12: false }),
+    duration: duration,
+    status: 'OPEN', // Assume all trades are open for live view
+    riskScore: Math.random() * 10 // Placeholder - would need risk calculation logic
+  };
+};
+
+const calculateStrategyMetrics = (strategyName: string, trades: Trade[]): StrategyMetrics => {
+  const strategyTrades = trades.filter(t => t.strategy === strategyName);
+  const totalTrades = strategyTrades.length;
+  const openTrades = strategyTrades.length; // All shown trades are considered "open"
+  
+  // Calculate day P&L (trades from today)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dayPnL = strategyTrades.reduce((sum, trade) => sum + trade.pnl, 0);
+  
+  // Calculate win rate
+  const winningTrades = strategyTrades.filter(t => t.pnl > 0).length;
+  const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
+  
+  // Calculate average hold time from duration strings
+  const avgHoldTime = strategyTrades.length > 0 
+    ? strategyTrades[0]?.duration || "0m" 
+    : "0m";
+  
+  return {
+    name: strategyName,
+    totalTrades,
+    openTrades,
+    dayPnL,
+    winRate,
+    avgHoldTime,
+    maxDrawdown: -5.0, // Placeholder - would need historical calculation
+    sharpeRatio: 1.5, // Placeholder - would need historical calculation
+    isActive: true
+  };
+};
+
 export const LiveTradingInspector = ({ selectedStrategy }: LiveTradingInspectorProps) => {
   const [selectedStrategyFilter, setSelectedStrategyFilter] = useState<string>('all');
   const [refreshing, setRefreshing] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [autoRefresh] = useState(true);
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
 
-  // Mock live trading data - in real app this would come from WebSocket/API
-  const strategies: StrategyMetrics[] = [
-    {
-      name: 'Momentum Strategy A',
-      totalTrades: 234,
-      openTrades: 12,
-      dayPnL: 15420,
-      winRate: 68.3,
-      avgHoldTime: '2h 15m',
-      maxDrawdown: -8.3,
-      sharpeRatio: 1.8,
-      isActive: true
+  // Fetch active strategies
+  const { data: strategiesData, refetch: refetchStrategies } = useQuery({
+    queryKey: ['active-strategies'],
+    queryFn: async () => {
+      const response = await fetch('/api/strategies/active');
+      if (!response.ok) throw new Error('Failed to fetch strategies');
+      const result = await response.json();
+      return result.data.strategies;
     },
-    {
-      name: 'Mean Reversion B',
-      totalTrades: 156,
-      openTrades: 8,
-      dayPnL: -3240,
-      winRate: 72.1,
-      avgHoldTime: '4h 32m',
-      maxDrawdown: -12.1,
-      sharpeRatio: 1.2,
-      isActive: true
-    },
-    {
-      name: 'Pairs Trading C',
-      totalTrades: 89,
-      openTrades: 6,
-      dayPnL: 8750,
-      winRate: 65.2,
-      avgHoldTime: '1h 45m',
-      maxDrawdown: -5.9,
-      sharpeRatio: 2.3,
-      isActive: true
-    }
-  ];
+    refetchInterval: autoRefresh ? 30000 : false, // Refresh every 30 seconds if auto-refresh enabled
+    retry: false,
+  });
 
-  const liveTrades: Trade[] = [
-    {
-      id: 'T001',
-      strategy: 'Momentum Strategy A',
-      symbol: 'AAPL',
-      side: 'BUY',
-      quantity: 500,
-      entryPrice: 185.42,
-      currentPrice: 187.15,
-      pnl: 865.00,
-      pnlPercent: 0.93,
-      entryTime: '09:34:12',
-      duration: '2h 15m',
-      status: 'OPEN',
-      riskScore: 6.2
+  // Fetch trades with optional date range filtering
+  const { data: tradesData, refetch: refetchTrades } = useQuery({
+    queryKey: ['recent-trades', startDate, endDate],
+    queryFn: async () => {
+      // Build query parameters
+      const params = new URLSearchParams();
+      
+      // If no dates specified, default to last 24 hours for live view
+      if (!startDate && !endDate) {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        params.append('startDate', yesterday.toISOString());
+      } else {
+        if (startDate) params.append('startDate', new Date(startDate).toISOString());
+        if (endDate) params.append('endDate', new Date(endDate).toISOString());
+      }
+      
+      params.append('limit', '100');
+      params.append('sortBy', 'executed_at');
+      params.append('sortOrder', 'desc');
+      
+      const response = await fetch(`/api/trades?${params.toString()}`);
+      if (!response.ok) throw new Error('Failed to fetch trades');
+      const result = await response.json();
+      return result.data.items[0]?.trades || [];
     },
-    {
-      id: 'T002',
-      strategy: 'Pairs Trading C',
-      symbol: 'TSLA',
-      side: 'SELL',
-      quantity: 200,
-      entryPrice: 248.90,
-      currentPrice: 246.33,
-      pnl: 514.00,
-      pnlPercent: 1.03,
-      entryTime: '10:12:45',
-      duration: '1h 37m',
-      status: 'OPEN',
-      riskScore: 7.8
+    refetchInterval: autoRefresh ? 10000 : false, // Refresh every 10 seconds for live trades
+    retry: false,
+  });
+
+  // Fetch current positions for real-time pricing
+  const { data: positionsData, refetch: refetchPositions } = useQuery({
+    queryKey: ['positions-data'],
+    queryFn: async () => {
+      const response = await fetch('/api/portfolio/positions');
+      if (!response.ok) throw new Error('Failed to fetch positions');
+      const result = await response.json();
+      return result.data?.positions || [];
     },
-    {
-      id: 'T003',
-      strategy: 'Mean Reversion B',
-      symbol: 'MSFT',
-      side: 'BUY',
-      quantity: 300,
-      entryPrice: 378.21,
-      currentPrice: 376.89,
-      pnl: -396.00,
-      pnlPercent: -0.35,
-      entryTime: '08:45:33',
-      duration: '3h 04m',
-      status: 'OPEN',
-      riskScore: 4.1
-    },
-    {
-      id: 'T004',
-      strategy: 'Momentum Strategy A',
-      symbol: 'NVDA',
-      side: 'BUY',
-      quantity: 150,
-      entryPrice: 495.67,
-      currentPrice: 498.23,
-      pnl: 384.00,
-      pnlPercent: 0.52,
-      entryTime: '11:22:18',
-      duration: '28m',
-      status: 'OPEN',
-      riskScore: 8.9
-    },
-    {
-      id: 'T005',
-      strategy: 'Pairs Trading C',
-      symbol: 'GOOGL',
-      side: 'SELL',
-      quantity: 100,
-      entryPrice: 142.78,
-      currentPrice: 141.95,
-      pnl: 83.00,
-      pnlPercent: 0.58,
-      entryTime: '09:55:07',
-      duration: '1h 54m',
-      status: 'OPEN',
-      riskScore: 5.5
-    }
-  ];
+    refetchInterval: autoRefresh ? 15000 : false, // Refresh every 15 seconds
+    retry: false,
+  });
+
+  // Transform API data to component format
+  const transformedTrades: Trade[] = (tradesData || []).map((trade: ApiTrade) => 
+    transformApiTradeToComponentTrade(trade, positionsData)
+  );
+
+  // Calculate strategy metrics from real data
+  const strategies: StrategyMetrics[] = (strategiesData || []).map((strategy: {id: number, name: string}) => {
+    const strategyName = strategy.name;
+    return calculateStrategyMetrics(strategyName, transformedTrades);
+  });
+
+  // Use transformed trades as the live trades data
+  const liveTrades: Trade[] = transformedTrades;
 
   // Filter trades based on selected strategy from props or dropdown
   const effectiveFilter = selectedStrategy || selectedStrategyFilter;
@@ -211,24 +254,21 @@ export const LiveTradingInspector = ({ selectedStrategy }: LiveTradingInspectorP
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setRefreshing(false);
+    try {
+      // Manually trigger refetch of all data
+      await Promise.all([
+        refetchStrategies(),
+        refetchTrades(),
+        refetchPositions()
+      ]);
+    } catch (error) {
+      console.error('Failed to refresh data:', error);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
-  // Auto-refresh simulation
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (autoRefresh) {
-      interval = setInterval(() => {
-        // In real app, this would fetch latest data
-        console.log('Auto-refreshing trade data...');
-      }, 5000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [autoRefresh]);
+  // No need for separate auto-refresh since React Query handles this with refetchInterval
 
   return (
     <div className="space-y-6">
@@ -312,29 +352,68 @@ export const LiveTradingInspector = ({ selectedStrategy }: LiveTradingInspectorP
 
       {/* Live Trades View */}
       <div className="space-y-4">
-        {/* Strategy Filter */}
+        {/* Filters */}
         <Card className="trading-card">
           <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              <span className="text-sm font-medium">Filter by Strategy:</span>
-              <div className="flex gap-2">
-                <Button
-                  variant={selectedStrategyFilter === 'all' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setSelectedStrategyFilter('all')}
-                >
-                  All Strategies
-                </Button>
-                {strategies.map((strategy) => (
+            <div className="space-y-4">
+              {/* Strategy Filter */}
+              <div className="flex items-center gap-4 flex-wrap">
+                <span className="text-sm font-medium">Filter by Strategy:</span>
+                <div className="flex gap-2 flex-wrap">
                   <Button
-                    key={strategy.name}
-                    variant={selectedStrategyFilter === strategy.name ? 'default' : 'outline'}
+                    variant={selectedStrategyFilter === 'all' ? 'default' : 'outline'}
                     size="sm"
-                    onClick={() => setSelectedStrategyFilter(strategy.name)}
+                    onClick={() => setSelectedStrategyFilter('all')}
                   >
-                    {strategy.name}
+                    All Strategies
                   </Button>
-                ))}
+                  {strategies.map((strategy) => (
+                    <Button
+                      key={strategy.name}
+                      variant={selectedStrategyFilter === strategy.name ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSelectedStrategyFilter(strategy.name)}
+                    >
+                      {strategy.name}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Date Range Filter */}
+              <div className="flex items-center gap-4 flex-wrap">
+                <span className="text-sm font-medium">Date Range:</span>
+                <div className="flex gap-2 items-center">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs text-muted-foreground">Start Date</label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="px-2 py-1 border border-border rounded text-sm bg-background"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs text-muted-foreground">End Date</label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="px-2 py-1 border border-border rounded text-sm bg-background"
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setStartDate('');
+                      setEndDate('');
+                    }}
+                    className="mt-4"
+                  >
+                    Clear
+                  </Button>
+                </div>
               </div>
             </div>
           </CardContent>
@@ -345,7 +424,13 @@ export const LiveTradingInspector = ({ selectedStrategy }: LiveTradingInspectorP
           <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Eye className="w-5 h-5" />
-                Live Trades {effectiveFilter !== 'all' && `- ${effectiveFilter}`}
+                Live Trades 
+                {effectiveFilter !== 'all' && <span className="text-sm font-normal">- {effectiveFilter}</span>}
+                {(startDate || endDate) && (
+                  <span className="text-sm font-normal text-muted-foreground">
+                    ({startDate && `from ${startDate}`} {startDate && endDate && '|'} {endDate && `to ${endDate}`})
+                  </span>
+                )}
               </CardTitle>
           </CardHeader>
           <CardContent>

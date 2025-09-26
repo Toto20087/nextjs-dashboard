@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db/prisma";
+import { ApiResponse } from "@/types/api";
 
-export async function GET(req: NextRequest) {
+export async function GET(
+  req: NextRequest
+): Promise<NextResponse<ApiResponse>> {
   let dbUser;
   let user;
   try {
@@ -171,9 +174,7 @@ export async function GET(req: NextRequest) {
       id: user.id,
       clerkId: user.clerk_user_id,
       email: user.email,
-      firstName: user.first_name,
-      lastName: user.last_name,
-      fullName: `${user.first_name || ""} ${user.last_name || ""}`.trim(),
+      name: user.name,
       role: user.role,
       department: user.department,
       timezone: user.timezone,
@@ -317,8 +318,7 @@ export async function POST(req: NextRequest) {
         role: true,
         clerk_user_id: true,
         email: true,
-        first_name: true,
-        last_name: true,
+        name: true,
       },
     });
 
@@ -396,8 +396,7 @@ export async function POST(req: NextRequest) {
         id: true,
         clerk_user_id: true,
         email: true,
-        first_name: true,
-        last_name: true,
+        name: true,
         role: true,
         department: true,
         can_trade: true,
@@ -423,9 +422,7 @@ export async function POST(req: NextRequest) {
           target_user: {
             id: updatedUser.id,
             email: updatedUser.email,
-            name: `${updatedUser.first_name || ""} ${
-              updatedUser.last_name || ""
-            }`.trim(),
+            name: `${updatedUser.name || ""} ${updatedUser.name || ""}`.trim(),
           },
           changes: updateData,
           admin_user: {
@@ -446,11 +443,7 @@ export async function POST(req: NextRequest) {
       id: updatedUser.id,
       clerkId: updatedUser.clerk_user_id,
       email: updatedUser.email,
-      firstName: updatedUser.first_name,
-      lastName: updatedUser.last_name,
-      fullName: `${updatedUser.first_name || ""} ${
-        updatedUser.last_name || ""
-      }`.trim(),
+      name: updatedUser.name,
       role: updatedUser.role,
       department: updatedUser.department,
       permissions: {
@@ -470,7 +463,7 @@ export async function POST(req: NextRequest) {
       data: {
         user: formattedUser,
         message: `User ${
-          formattedUser.fullName || formattedUser.email
+          formattedUser.name || formattedUser.email
         } updated successfully`,
       },
     });

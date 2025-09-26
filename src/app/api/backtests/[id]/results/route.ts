@@ -1,7 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
-import { currentUser } from "@clerk/nextjs/server";
 import { BacktestService } from "@/lib/db/services/backtestService";
 import { backtestService } from "@/lib/backtest/client";
+
+interface ExternalResults {
+  status?: string;
+  symbols?: string[];
+  metrics?: {
+    total_return?: number;
+    annualized_return?: number;
+    sharpe_ratio?: number;
+    sortino_ratio?: number;
+    max_drawdown?: number;
+    total_trades?: number;
+    winning_trades?: number;
+    losing_trades?: number;
+    win_rate?: number;
+    profit_factor?: number;
+    net_profit?: number;
+  };
+  trades?: Array<{
+    id?: string;
+    symbol?: string;
+    side?: "long" | "short";
+    quantity?: number;
+    price?: number;
+    timestamp?: string;
+    profit_loss?: number;
+  }>;
+  equity_curve?: Array<{
+    date: string;
+    value: number;
+    drawdown: number;
+  }>;
+}
 
 export async function GET(
   req: NextRequest,
@@ -50,68 +81,119 @@ export async function GET(
     }
 
     try {
-      // Fetch results from external backtesting service
-      const externalResults: any = await backtestService.getBacktestResults(
-        backtestRun.job_id
+      // Fetch results from external backtesting service using job_id (external service groups by job)
+      const externalResults: ExternalResults =
+        await backtestService.getBacktestResults(backtestId.toString());
+
+      // Get the symbol for this specific backtest run
+      const backtestSymbols = await BacktestService.getBacktestSymbolsByRunId(
+        backtestId
       );
+      const runSymbol = backtestSymbols?.[0]?.symbols?.symbol;
+
+      // Filter external results to only include trades for this run's symbol
+      if (externalResults.trades && runSymbol) {
+        externalResults.trades = externalResults.trades.filter(
+          (trade) => trade.symbol?.toUpperCase() === runSymbol.toUpperCase()
+        );
+      }
+
+      // Fetch equity curve data from database using the run ID
+      const equityCurveData = await BacktestService.getEquityCurveByRunId(
+        backtestId
+      );
+
+      // Get the initial capital from the backtest_runs table
+      const initialCapital = Number(backtestRun.initial_capital) || 100000;
+
+      // Transform equity curve data to proper format
+      const formattedEquityCurve = equityCurveData.map((point: any) => ({
+        date: point.timestamp?.toISOString() || new Date().toISOString(),
+        value: Number(point.equity_value) || initialCapital,
+        drawdown: Number(point.drawdown_pct) || 0,
+      }));
 
       // Prepare metadata from local database (without status)
       const metadata = {
         strategyName: backtestRun.strategies?.name || "Unknown Strategy",
         symbols:
-          backtestRun.backtest_symbols_backtest_symbols_backtest_idTobacktest_runs?.map(
-            (bs: any) => ({
-              id: bs.symbols?.id,
-              symbol: bs.symbols?.symbol,
-              name: bs.symbols?.name,
-            })
-          ) ||
-          externalResults.symbols ||
-          [],
+          // Convert external service string[] to object format if available
+          externalResults.symbols?.map((symbol) => ({ symbol })) || [],
         period: {
           start: backtestRun.start_date.toISOString(),
           end: backtestRun.end_date.toISOString(),
         },
         parameters: backtestRun.strategy_config || {},
         jobId: backtestRun.job_id,
+        initialCapital,
       };
 
       // Use the actual status from VectorBT service
       const isCompleted = externalResults.status === "completed";
 
+      // Helper function to convert BigInt to number
+      const convertBigIntToNumber = (value: any): any => {
+        if (typeof value === "bigint") {
+          return Number(value);
+        }
+        if (typeof value === "object" && value !== null) {
+          if (Array.isArray(value)) {
+            return value.map(convertBigIntToNumber);
+          }
+          const converted: any = {};
+          for (const [key, val] of Object.entries(value)) {
+            converted[key] = convertBigIntToNumber(val);
+          }
+          return converted;
+        }
+        return value;
+      };
+
+      const responseData = {
+        status: externalResults.status || "unknown",
+        metadata: {
+          ...metadata,
+        },
+        metrics: {
+          totalReturn: externalResults.metrics?.total_return || 0,
+          annualizedReturn: externalResults.metrics?.annualized_return || 0,
+          sharpeRatio: externalResults.metrics?.sharpe_ratio || 0,
+          sortinoRatio: externalResults.metrics?.sortino_ratio || 0,
+          maxDrawdown: externalResults.metrics?.max_drawdown || 0,
+          totalTrades: externalResults.metrics?.total_trades || 0,
+          winningTrades: externalResults.metrics?.winning_trades || 0,
+          losingTrades: externalResults.metrics?.losing_trades || 0,
+          winRate: externalResults.metrics?.win_rate || 0,
+          profitFactor: externalResults.metrics?.profit_factor || 0,
+          netProfit: externalResults.metrics?.net_profit || 0,
+        },
+        equityCurve: formattedEquityCurve,
+        trades: externalResults.trades || backtestRun.backtest_trades || [],
+        readyForApproval: isCompleted,
+      };
+
+      // Convert any BigInt values to numbers before serialization
+      const cleanedData = convertBigIntToNumber(responseData);
+
       return NextResponse.json({
         success: true,
-        data: {
-          status: externalResults.status || "unknown",
-          metadata: {
-            ...metadata,
-          },
-          metrics: {
-            totalReturn: externalResults.metrics?.total_return || 0,
-            annualizedReturn: externalResults.metrics?.annualized_return || 0,
-            sharpeRatio: externalResults.metrics?.sharpe_ratio || 0,
-            sortinoRatio: externalResults.metrics?.sortino_ratio || 0,
-            maxDrawdown: externalResults.metrics?.max_drawdown || 0,
-            totalTrades: externalResults.metrics?.total_trades || 0,
-            winningTrades: externalResults.metrics?.winning_trades || 0,
-            losingTrades: externalResults.metrics?.losing_trades || 0,
-            winRate: externalResults.metrics?.win_rate || 0,
-            profitFactor: externalResults.metrics?.profit_factor || 0,
-            netProfit: externalResults.metrics?.net_profit || 0,
-          },
-          equityCurve: backtestRun.backtest_equity_curve || [], // VectorBT doesn't seem to return equity curve in this format
-          trades: externalResults.trades || backtestRun.backtest_trades || [],
-          readyForApproval: isCompleted,
-        },
+        data: cleanedData,
       });
-    } catch (externalError: any) {
-      // Handle external service errors gracefully
-      console.error("External service error:", externalError);
+    } catch (externalError: unknown) {
+      // Type guard to check if error has message property
+      const isErrorWithMessage = (
+        error: unknown
+      ): error is { message: string } => {
+        return (
+          typeof error === "object" && error !== null && "message" in error
+        );
+      };
 
       // Check if it's a 404 from external service
       if (
-        externalError.message?.includes("404") ||
-        externalError.message?.includes("not found")
+        isErrorWithMessage(externalError) &&
+        (externalError.message.includes("404") ||
+          externalError.message.includes("not found"))
       ) {
         return NextResponse.json(
           {
@@ -127,8 +209,9 @@ export async function GET(
 
       // Check if external service is unavailable
       if (
-        externalError.message?.includes("timeout") ||
-        externalError.message?.includes("ECONNREFUSED")
+        isErrorWithMessage(externalError) &&
+        (externalError.message.includes("timeout") ||
+          externalError.message.includes("ECONNREFUSED"))
       ) {
         return NextResponse.json(
           {
@@ -142,38 +225,9 @@ export async function GET(
         );
       }
 
-      // Fallback: return status from local database if available
-      return NextResponse.json({
-        success: true,
-        data: {
-          status: backtestRun.status || "unknown",
-          progress: 0,
-          currentStep: "Service unavailable",
-          metadata: {
-            strategyName: backtestRun.strategies?.name || "Unknown Strategy",
-            symbols: [],
-            period: {
-              start: backtestRun.start_date.toISOString(),
-              end: backtestRun.end_date.toISOString(),
-            },
-            parameters: backtestRun.strategy_config || {},
-            jobId: backtestRun.job_id,
-          },
-          metrics: {
-            totalReturn: 0,
-            sharpeRatio: 0,
-            maxDrawdown: 0,
-            totalTrades: 0,
-            winRate: 0,
-          },
-          equityCurve: [],
-          trades: [],
-          readyForApproval: false,
-        },
-      });
+      throw externalError;
     }
   } catch (error) {
-    console.error("Backtest results API error:", error);
     return NextResponse.json(
       {
         success: false,

@@ -92,6 +92,11 @@ export const apiService = {
     delete: (id: string) => api.delete(`/strategies/${id}`),
     backtest: (id: string, params: any) =>
       api.post(`/strategies/${id}/backtest`, params),
+    getConfigParameters: (strategyId: string) =>
+      api.get(`/strategies/${strategyId}/config_parameters`),
+    getParameters: (strategyId: string) =>
+      api.get(`/strategies/${strategyId}/parameters`),
+    getActive: () => api.get("/strategies/active"),
   },
 
   // Portfolio endpoints
@@ -101,7 +106,7 @@ export const apiService = {
 
   // Market data endpoints
   marketData: {
-    getHistoricalBars: (symbol: string, params?: any) => 
+    getHistoricalBars: (symbol: string, params?: any) =>
       api.get(`/market-data/${symbol}/history`, { params }),
     getQuote: (symbol: string) => api.get(`/market-data/${symbol}`),
   },
@@ -125,6 +130,11 @@ export const apiService = {
     getHealth: () => api.get("/system/health"),
     getStatus: () => api.get("/system/status"),
   },
+
+  // Symbol endpoints
+  symbols: {
+    getActive: () => api.get("/symbols?active"),
+  },
 };
 
 // Vector-BT specific API service
@@ -132,7 +142,7 @@ export const vectorBtService = {
   // Backtest endpoints
   backtests: {
     getJob: (jobId: string) => api.get(`/backtest/${jobId}`),
-    runBacktest: (params: any) => api.post("/backtest", params),
+    runBacktest: (params: any) => api.post("/backtests", params),
     findBestTickers: (params: any) =>
       api.post("/backtest/find-best-tickers", params),
     walkForward: (params: any) => api.post("/backtest/walk-forward", params),
@@ -153,8 +163,6 @@ export const vectorBtService = {
     getTemplates: () => api.get("/strategies/templates"),
     getInfo: (strategyName: string) =>
       api.get(`/strategies/info/${strategyName}`),
-    getParameters: (strategyName: string) =>
-      api.get(`/strategies/parameters/${strategyName}`),
   },
 
   // Job management endpoints

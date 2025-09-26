@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db/prisma";
 
+interface EntryContext {
+  resource_type: string;
+  resource_id: string;
+  details: string;
+  ip_address: string;
+  user_agent: string;
+}
+
 export async function GET(req: NextRequest) {
   let dbUser;
   let user;
@@ -151,11 +159,19 @@ export async function GET(req: NextRequest) {
       // Parse context for additional display info
       ...(entry.context && typeof entry.context === "object"
         ? {
-            resource: (entry.context as any)?.resource_type || null,
-            resourceId: (entry.context as any)?.resource_id ? (entry.context as any).resource_id.toString() : null,
-            details: (entry.context as any)?.details || null,
-            ipAddress: (entry.context as any)?.ip_address || null,
-            userAgent: (entry.context as any)?.user_agent || null,
+            resource:
+              (entry.context as unknown as EntryContext)?.resource_type || null,
+            resourceId: (entry.context as unknown as EntryContext)?.resource_id
+              ? (
+                  entry.context as unknown as EntryContext
+                ).resource_id.toString()
+              : null,
+            details:
+              (entry.context as unknown as EntryContext)?.details || null,
+            ipAddress:
+              (entry.context as unknown as EntryContext)?.ip_address || null,
+            userAgent:
+              (entry.context as unknown as EntryContext)?.user_agent || null,
           }
         : {}),
     }));

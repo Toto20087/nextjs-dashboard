@@ -424,4 +424,34 @@ export class BacktestService {
       growthRate,
     };
   }
+
+  // Get equity curve data for a specific backtest run
+  static async getEquityCurveByRunId(runId: number) {
+    return await prisma.backtest_equity_curve.findMany({
+      where: {
+        run_id: runId,
+      },
+      orderBy: {
+        timestamp: "asc",
+      },
+    });
+  }
+
+  // Get backtest symbols for a specific backtest run
+  static async getBacktestSymbolsByRunId(runId: number) {
+    return await prisma.backtest_symbols.findMany({
+      where: {
+        backtest_id: runId,
+      },
+      include: {
+        symbols: {
+          select: {
+            id: true,
+            symbol: true,
+            name: true,
+          },
+        },
+      },
+    });
+  }
 }

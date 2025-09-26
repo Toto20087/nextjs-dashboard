@@ -25,8 +25,6 @@ export async function GET(
     // Get backtest run from database
     const backtestRun = await BacktestService.findBacktestRunById(backtestId);
 
-    console.log("backtestRun", backtestRun);
-
     if (!backtestRun) {
       return NextResponse.json(
         {
@@ -56,8 +54,6 @@ export async function GET(
       const externalStatus = await backtestService.getBacktestStatus(
         backtestRun.job_id
       );
-
-      console.log("externalStatus", externalStatus);
 
       // Prepare response with local metadata and external status
       return NextResponse.json({
@@ -97,48 +93,9 @@ export async function GET(
           },
         },
       });
-    } catch (externalError: any) {
-      // Handle external service errors gracefully
-      console.error("External service error:", externalError);
-
+    } catch (externalError: unknown) {
       // Fallback: return status from local database
-      return NextResponse.json({
-        success: true,
-        data: {
-          backtest: {
-            id: backtestRun.id,
-            jobId: backtestRun.job_id,
-            status: backtestRun.status || "unknown",
-            progress: 0,
-            currentStep: "External service unavailable",
-            strategy: {
-              id: backtestRun.strategy_id,
-              name: backtestRun.strategies?.name || "Unknown Strategy",
-            },
-            metadata: {
-              createdAt: backtestRun.created_at?.toISOString(),
-              startDate: backtestRun.start_date.toISOString(),
-              endDate: backtestRun.end_date.toISOString(),
-              initialCapital: Number(backtestRun.initial_capital),
-              parameters: backtestRun.strategy_config || {},
-            },
-            results: backtestRun.backtest_metrics?.[0]
-              ? {
-                  totalReturn:
-                    Number(backtestRun.backtest_metrics[0].total_return) || 0,
-                  sharpeRatio:
-                    Number(backtestRun.backtest_metrics[0].sharpe_ratio) || 0,
-                  totalTrades:
-                    backtestRun.backtest_metrics[0].total_trades || 0,
-                  winRate:
-                    Number(backtestRun.backtest_metrics[0].win_rate) || 0,
-                  maxDrawdown:
-                    Number(backtestRun.backtest_metrics[0].max_drawdown) || 0,
-                }
-              : undefined,
-          },
-        },
-      });
+      throw externalError;
     }
   } catch (error) {
     return NextResponse.json(
@@ -147,6 +104,7 @@ export async function GET(
         error: {
           code: "BACKTEST_FETCH_ERROR",
           message: "Failed to fetch backtest",
+          details: error instanceof Error ? error.message : "Unknown error",
         },
       },
       { status: 500 }
@@ -194,7 +152,7 @@ export async function DELETE(
           });
         }
       } catch (dbError) {
-        console.log("No local database record found for job:", jobId);
+        console.error("Failed to update local database:", dbError);
       }
 
       return NextResponse.json({
@@ -205,7 +163,7 @@ export async function DELETE(
           status: "cancelled",
         },
       });
-    } catch (deleteError: any) {
+    } catch (deleteError: unknown) {
       console.error("Failed to delete job from VectorBT:", deleteError);
 
       return NextResponse.json(
@@ -214,7 +172,10 @@ export async function DELETE(
           error: {
             code: "DELETE_FAILED",
             message: "Failed to delete job",
-            details: deleteError.message,
+            details:
+              deleteError instanceof Error
+                ? deleteError.message
+                : "Unknown error",
           },
         },
         { status: 500 }

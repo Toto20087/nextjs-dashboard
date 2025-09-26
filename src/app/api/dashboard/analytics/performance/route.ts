@@ -1,7 +1,156 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { ApiResponse } from "@/types/api";
+import { Decimal } from "@prisma/client/runtime/library";
+import type { Prisma } from "@prisma/client";
 
-export async function GET(req: NextRequest) {
+// Prisma database result types (what we get from database)
+type PrismaExecutionWithRelations = Prisma.executionsGetPayload<{
+  include: {
+    positions: {
+      select: {
+        id: true;
+        strategies: {
+          select: {
+            id: true;
+            name: true;
+          };
+        };
+      };
+    };
+    symbols: {
+      select: {
+        symbol: true;
+        name: true;
+      };
+    };
+  };
+}>;
+
+type PrismaExecutionBasic = Prisma.executionsGetPayload<{
+  include: {
+    symbols: {
+      select: {
+        symbol: true;
+        name: true;
+      };
+    };
+  };
+}>;
+
+// Business logic interfaces (what we use in calculations)
+interface Execution {
+  id: string; // Convert BigInt to string for consistency
+  position_id: string | null;
+  executed_at: Date;
+  price: number; // Convert Decimal to number
+  quantity: number; // Convert Decimal to number
+  side: string;
+  positions?: {
+    id: string;
+    strategies?: {
+      id: number;
+      name: string;
+    } | null;
+  } | null;
+  symbols?: {
+    symbol: string;
+    name?: string;
+  } | null;
+}
+
+// Type conversion utilities
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function convertPrismaExecution(prismaExec: PrismaExecutionWithRelations | PrismaExecutionBasic | any): Execution {
+  return {
+    id: prismaExec.id.toString(),
+    position_id: prismaExec.position_id?.toString() || null,
+    executed_at: prismaExec.executed_at,
+    price: Number(prismaExec.price),
+    quantity: Number(prismaExec.quantity),
+    side: prismaExec.side,
+    positions: prismaExec.positions ? {
+      id: prismaExec.positions.id.toString(),
+      strategies: prismaExec.positions.strategies || null
+    } : null,
+    symbols: prismaExec.symbols ? {
+      symbol: prismaExec.symbols.symbol,
+      name: prismaExec.symbols.name || undefined
+    } : null
+  };
+}
+
+function convertDecimalToNumber(decimal: Decimal | null | undefined): number {
+  return decimal ? Number(decimal.toString()) : 0;
+}
+
+// Response data interfaces
+interface PerformanceMetrics {
+  totalReturn: number;
+  sharpeRatio: number;
+  maxDrawdown: number;
+  winRate: number;
+  profitFactor: number;
+  averageWin: number;
+  averageLoss: number;
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+}
+
+interface TimeSeriesPoint {
+  date: string;
+  portfolioValue: number;
+  totalCapital: number;
+  usedCapital: number;
+  pnl: number;
+  realizedPnl: number;
+  unrealizedPnl: number;
+}
+
+interface StrategyBreakdownItem {
+  strategy: string;
+  executions: number;
+  totalReturn: number;
+  winRate: number;
+  sharpeRatio: number;
+  maxDrawdown: number;
+}
+
+interface RegimePerformanceItem {
+  regime: string;
+  avgReturn: number;
+  sharpe: number;
+  maxDrawdown: number;
+  occurrences: number;
+  avgDuration: number;
+  executions: number;
+  winRate: number;
+}
+
+interface RegimePeriod {
+  regimeId: number;
+  regimeName: string;
+  startDate: Date;
+  endDate: Date | null;
+  duration: number;
+}
+
+interface PerformanceAnalyticsResponse {
+  metrics: PerformanceMetrics;
+  timeSeriesData: TimeSeriesPoint[];
+  strategyBreakdown: StrategyBreakdownItem[];
+  regimePerformance: RegimePerformanceItem[];
+  totalExecutions: number;
+  dateRange: {
+    start: string | null;
+    end: string;
+    period: string;
+  };
+}
+export async function GET(
+  req: NextRequest
+): Promise<NextResponse<ApiResponse<PerformanceAnalyticsResponse>>> {
   try {
     const { searchParams } = new URL(req.url);
     const strategyId = searchParams.get("strategyId");
@@ -36,7 +185,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Build where clause for date filtering
-    const whereClause: any = {};
+    const whereClause: Prisma.executionsWhereInput = {};
     if (Object.keys(dateFilter).length > 0) {
       whereClause.executed_at = dateFilter;
     }
@@ -64,9 +213,9 @@ export async function GET(req: NextRequest) {
     }
 
     // Fetch historical executions (trades) - try with positions first
-    let executions;
+    let prismaExecutions: (PrismaExecutionWithRelations | PrismaExecutionBasic)[];
     try {
-      executions = await prisma.executions.findMany({
+      prismaExecutions = await prisma.executions.findMany({
         where: whereClause,
         include: {
           positions: {
@@ -90,12 +239,15 @@ export async function GET(req: NextRequest) {
         orderBy: {
           executed_at: "asc",
         },
-      });
+      }) as PrismaExecutionWithRelations[];
     } catch (error) {
       // If positions include fails, fall back to fetching without it and join client-side
-      console.log("Falling back to client-side join for positions");
+      console.log(
+        "Falling back to client-side join for positions, error:",
+        error
+      );
 
-      executions = await prisma.executions.findMany({
+      prismaExecutions = await prisma.executions.findMany({
         where: whereClause,
         include: {
           symbols: {
@@ -108,12 +260,12 @@ export async function GET(req: NextRequest) {
         orderBy: {
           executed_at: "asc",
         },
-      });
+      }) as PrismaExecutionBasic[];
 
       // Fetch positions with strategies separately
-      const executionPositionIds = executions
+      const executionPositionIds = prismaExecutions
         .map((exec) => exec.position_id)
-        .filter(Boolean) as bigint[];
+        .filter((id): id is bigint => id !== null);
 
       const positionsWithStrategies =
         executionPositionIds.length > 0
@@ -135,13 +287,19 @@ export async function GET(req: NextRequest) {
           : [];
 
       // Create a map for quick lookup
-      const positionStrategyMap = new Map();
+      const positionStrategyMap = new Map<
+        string,
+        { id: number; name: string } | null
+      >();
       positionsWithStrategies.forEach((position) => {
-        positionStrategyMap.set(position.id.toString(), position.strategies);
+        positionStrategyMap.set(
+          position.id.toString(),
+          position.strategies || null
+        );
       });
 
       // Enrich executions with strategy data
-      executions = executions.map((exec) => ({
+      prismaExecutions = (prismaExecutions as PrismaExecutionBasic[]).map((exec) => ({
         ...exec,
         positions: exec.position_id
           ? {
@@ -149,7 +307,7 @@ export async function GET(req: NextRequest) {
               strategies: positionStrategyMap.get(exec.position_id.toString()),
             }
           : null,
-      }));
+      })) as PrismaExecutionWithRelations[];
     }
 
     // Fetch portfolio snapshots for equity curve
@@ -171,18 +329,21 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    // Convert Prisma data to business logic types
+    const executions: Execution[] = prismaExecutions.map(convertPrismaExecution);
+
     // Calculate performance metrics
     const metrics = calculatePerformanceMetrics(executions);
 
     // Generate time series data from snapshots
-    const timeSeriesData = snapshots.map((snapshot) => ({
-      date: snapshot.created_at.toISOString().split("T")[0],
-      portfolioValue: Number(snapshot.allocated_capital),
-      totalCapital: Number(snapshot.allocated_capital),
-      usedCapital: Number(snapshot.used_capital),
-      pnl: Number(snapshot.realized_pnl) + Number(snapshot.unrealized_pnl),
-      realizedPnl: Number(snapshot.realized_pnl),
-      unrealizedPnl: Number(snapshot.unrealized_pnl),
+    const timeSeriesData: TimeSeriesPoint[] = snapshots.map((snapshot) => ({
+      date: snapshot.created_at?.toISOString().split("T")[0] || "",
+      portfolioValue: convertDecimalToNumber(snapshot.allocated_capital),
+      totalCapital: convertDecimalToNumber(snapshot.allocated_capital),
+      usedCapital: convertDecimalToNumber(snapshot.used_capital),
+      pnl: convertDecimalToNumber(snapshot.realized_pnl) + convertDecimalToNumber(snapshot.unrealized_pnl),
+      realizedPnl: convertDecimalToNumber(snapshot.realized_pnl),
+      unrealizedPnl: convertDecimalToNumber(snapshot.unrealized_pnl),
     }));
 
     // Calculate strategy breakdown
@@ -191,7 +352,6 @@ export async function GET(req: NextRequest) {
     // Calculate regime performance from actual database data
     const regimePerformance = await calculateRegimePerformance(
       executions,
-      strategyId ? parseInt(strategyId) : undefined,
       dateFilter
     );
 
@@ -226,7 +386,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-function calculatePerformanceMetrics(executions: any[]) {
+function calculatePerformanceMetrics(executions: Execution[]): PerformanceMetrics {
   if (executions.length === 0) {
     return {
       totalReturn: 0,
@@ -244,8 +404,8 @@ function calculatePerformanceMetrics(executions: any[]) {
 
   // Calculate PnL for each execution
   const pnlValues = executions.map((exec) => {
-    const quantity = Number(exec.quantity);
-    const price = Number(exec.price);
+    const quantity = exec.quantity;
+    const price = exec.price;
     const side = exec.side;
 
     // Simple PnL calculation (would need more sophisticated logic for real trading)
@@ -312,8 +472,10 @@ function calculatePerformanceMetrics(executions: any[]) {
   };
 }
 
-function calculateStrategyBreakdown(executions: any[]) {
-  const strategyGroups: { [key: string]: any[] } = {};
+function calculateStrategyBreakdown(
+  executions: Execution[]
+): StrategyBreakdownItem[] {
+  const strategyGroups: Record<string, Execution[]> = {};
 
   // Group executions by strategy
   executions.forEach((exec) => {
@@ -339,10 +501,9 @@ function calculateStrategyBreakdown(executions: any[]) {
 }
 
 async function calculateRegimePerformance(
-  executions: any[],
-  strategyId?: number,
+  executions: Execution[],
   dateFilter?: { gte?: Date; lte?: Date }
-) {
+): Promise<RegimePerformanceItem[]> {
   try {
     // Get all regime types
     const regimeTypes = await prisma.regime_types.findMany({
@@ -369,13 +530,7 @@ async function calculateRegimePerformance(
     });
 
     // Create a map of regime periods for faster lookup
-    const regimePeriods: Array<{
-      regimeId: number;
-      regimeName: string;
-      startDate: Date;
-      endDate: Date | null;
-      duration: number;
-    }> = [];
+    const regimePeriods: RegimePeriod[] = [];
 
     for (let i = 0; i < globalRegimeHistory.length; i++) {
       const current = globalRegimeHistory[i];
@@ -394,7 +549,7 @@ async function calculateRegimePerformance(
     }
 
     // Group executions by regime
-    const regimeExecutions: { [regimeName: string]: any[] } = {};
+    const regimeExecutions: Record<string, Execution[]> = {};
 
     executions.forEach((execution) => {
       const executionDate = new Date(execution.executed_at);

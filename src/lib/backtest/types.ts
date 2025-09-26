@@ -2,13 +2,31 @@
  * Type definitions for the backtesting service integration
  */
 
+export interface WalkForwardConfig {
+  enabled: boolean
+  training_window?: number // Training Window (days)
+  step_size?: number // Step Size (days)  
+  optimization_period?: number // Optimization Period (days)
+  min_trade_count?: number // Min Trade Count
+  // Legacy support for existing format
+  windowSize?: number // Training Window (days)
+  stepSize?: number // Step Size (days)
+  optimizationPeriod?: number // Optimization Period (days)
+  minTradeCount?: number // Min Trade Count
+}
+
 export interface BacktestRequest {
   strategyName: string
   symbols: string[]
-  parameters: Record<string, any>
-  startDate: string // ISO date string
-  endDate: string // ISO date string
+  parameters: Record<string, any> | null
+  startDate: string | null // ISO date string
+  endDate: string | null // ISO date string
   initialCapital?: number
+  position_sizing?: number
+  timeframe?: string
+  enable_regime_position_sizing?: boolean
+  walkForwardConfig?: WalkForwardConfig | null
+  optimizeConfig?: boolean
   benchmark?: string
   commission?: number
   slippage?: number
@@ -367,4 +385,6 @@ export interface BacktestRequestValidation {
   endDate: { required: true; format: 'date' }
   initialCapital: { required: false; min: 1000; max: 10000000 }
   parameters: { required: true; type: 'object' }
+  walkForwardConfig: { required: false; type: 'object' }
+  optimizeConfig: { required: false; type: 'boolean' }
 }

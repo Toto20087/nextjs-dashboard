@@ -23,16 +23,17 @@ export async function GET(req: NextRequest) {
         success: true,
         data: jobsData,
       });
-    } catch (externalError: any) {
-      console.error("External service error:", externalError);
-
+    } catch (externalError: unknown) {
       return NextResponse.json(
         {
           success: false,
           error: {
             code: "SERVICE_UNAVAILABLE",
             message: "VectorBT service is unavailable",
-            details: externalError.message,
+            details:
+              externalError instanceof Error
+                ? externalError.message
+                : "Unknown error",
           },
         },
         { status: 503 }

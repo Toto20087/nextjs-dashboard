@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   Dialog,
@@ -15,14 +15,18 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Checkbox } from '../ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { ScrollArea } from '../ui/scroll-area';
-import { TrendingUp, BarChart3, Activity, Zap, Target, Brain, Layers, Loader2 } from 'lucide-react';
-import { vectorBtService } from '../../services/api';
-import { AvailableStrategy } from '../../types/vectorbt';
+import { BarChart3, Activity, Target, Brain, Loader2 } from 'lucide-react';
+import { apiService, vectorBtService } from '../../services/api';
 import { useToast } from '../ui/use-toast';
+
+// Date formatting utility
+const formatDate = (date: Date): string => {
+  return date.toISOString().split('T')[0];
+};
+
 
 interface Strategy {
   id: string;
@@ -45,53 +49,7 @@ interface Strategy {
 }
 
 
-const tickerOptions = [
-  { symbol: 'SPY', name: 'SPDR S&P 500 ETF Trust', sector: 'ETF - Broad Market', exchange: 'NYSE', price: 485.67, change: 2.34, changePercent: 0.48 },
-  { symbol: 'QQQ', name: 'Invesco QQQ Trust', sector: 'ETF - Technology', exchange: 'NASDAQ', price: 412.89, change: -1.23, changePercent: -0.30 },
-  { symbol: 'IWM', name: 'iShares Russell 2000 ETF', sector: 'ETF - Small Cap', exchange: 'NYSE', price: 234.56, change: 1.89, changePercent: 0.81 },
-  { symbol: 'VTI', name: 'Vanguard Total Stock Market ETF', sector: 'ETF - Total Market', exchange: 'NYSE', price: 267.34, change: 0.95, changePercent: 0.36 },
-  { symbol: 'XLF', name: 'Financial Select Sector SPDR Fund', sector: 'ETF - Financial', exchange: 'NYSE', price: 42.78, change: 0.67, changePercent: 1.59 },
-  { symbol: 'XLK', name: 'Technology Select Sector SPDR Fund', sector: 'ETF - Technology', exchange: 'NYSE', price: 198.45, change: -0.45, changePercent: -0.23 },
-  { symbol: 'XLE', name: 'Energy Select Sector SPDR Fund', sector: 'ETF - Energy', exchange: 'NYSE', price: 89.23, change: 2.11, changePercent: 2.42 },
-  { symbol: 'XLV', name: 'Health Care Select Sector SPDR Fund', sector: 'ETF - Healthcare', exchange: 'NYSE', price: 132.67, change: 0.34, changePercent: 0.26 },
-  { symbol: 'XLP', name: 'Consumer Staples Select Sector SPDR Fund', sector: 'ETF - Consumer Staples', exchange: 'NYSE', price: 78.91, change: -0.12, changePercent: -0.15 },
-  { symbol: 'AAPL', name: 'Apple Inc.', sector: 'Technology', exchange: 'NASDAQ', price: 189.34, change: 1.67, changePercent: 0.89 },
-  { symbol: 'MSFT', name: 'Microsoft Corporation', sector: 'Technology', exchange: 'NASDAQ', price: 412.78, change: -2.34, changePercent: -0.56 },
-  { symbol: 'GOOGL', name: 'Alphabet Inc. Class A', sector: 'Technology', exchange: 'NASDAQ', price: 167.89, change: 0.78, changePercent: 0.47 },
-  { symbol: 'AMZN', name: 'Amazon.com Inc.', sector: 'Consumer Discretionary', exchange: 'NASDAQ', price: 145.67, change: 2.11, changePercent: 1.47 },
-  { symbol: 'TSLA', name: 'Tesla Inc.', sector: 'Consumer Discretionary', exchange: 'NASDAQ', price: 234.89, change: -5.67, changePercent: -2.36 },
-  { symbol: 'NVDA', name: 'NVIDIA Corporation', sector: 'Technology', exchange: 'NASDAQ', price: 789.45, change: 12.34, changePercent: 1.59 },
-  { symbol: 'META', name: 'Meta Platforms Inc.', sector: 'Technology', exchange: 'NASDAQ', price: 489.12, change: -3.45, changePercent: -0.70 },
-  { symbol: 'BRK.B', name: 'Berkshire Hathaway Inc. Class B', sector: 'Financial Services', exchange: 'NYSE', price: 456.78, change: 1.23, changePercent: 0.27 },
-  { symbol: 'JPM', name: 'JPMorgan Chase & Co.', sector: 'Financial Services', exchange: 'NYSE', price: 178.90, change: 0.89, changePercent: 0.50 },
-  { symbol: 'JNJ', name: 'Johnson & Johnson', sector: 'Healthcare', exchange: 'NYSE', price: 156.78, change: -0.45, changePercent: -0.29 },
-  { symbol: 'V', name: 'Visa Inc.', sector: 'Financial Services', exchange: 'NYSE', price: 289.34, change: 2.67, changePercent: 0.93 },
-  { symbol: 'PG', name: 'Procter & Gamble Company', sector: 'Consumer Staples', exchange: 'NYSE', price: 167.45, change: 0.34, changePercent: 0.20 },
-  { symbol: 'UNH', name: 'UnitedHealth Group Incorporated', sector: 'Healthcare', exchange: 'NYSE', price: 534.67, change: 4.56, changePercent: 0.86 },
-  { symbol: 'HD', name: 'Home Depot Inc.', sector: 'Consumer Discretionary', exchange: 'NYSE', price: 378.90, change: -1.23, changePercent: -0.32 },
-  { symbol: 'DIS', name: 'Walt Disney Company', sector: 'Communication Services', exchange: 'NYSE', price: 89.45, change: 0.67, changePercent: 0.75 },
-  { symbol: 'PYPL', name: 'PayPal Holdings Inc.', sector: 'Financial Services', exchange: 'NASDAQ', price: 67.89, change: -0.89, changePercent: -1.29 },
-  { symbol: 'NFLX', name: 'Netflix Inc.', sector: 'Communication Services', exchange: 'NASDAQ', price: 456.78, change: 3.45, changePercent: 0.76 },
-  { symbol: 'KO', name: 'Coca-Cola Company', sector: 'Consumer Staples', exchange: 'NYSE', price: 62.34, change: 0.12, changePercent: 0.19 },
-  { symbol: 'PEP', name: 'PepsiCo Inc.', sector: 'Consumer Staples', exchange: 'NASDAQ', price: 178.90, change: -0.23, changePercent: -0.13 },
-  { symbol: 'WMT', name: 'Walmart Inc.', sector: 'Consumer Staples', exchange: 'NYSE', price: 167.45, change: 0.78, changePercent: 0.47 },
-  { symbol: 'VZ', name: 'Verizon Communications Inc.', sector: 'Communication Services', exchange: 'NYSE', price: 41.23, change: -0.34, changePercent: -0.82 },
-  { symbol: 'T', name: 'AT&T Inc.', sector: 'Communication Services', exchange: 'NYSE', price: 22.67, change: 0.11, changePercent: 0.49 },
-  { symbol: 'XOM', name: 'Exxon Mobil Corporation', sector: 'Energy', exchange: 'NYSE', price: 118.90, change: 1.89, changePercent: 1.61 },
-  { symbol: 'CVX', name: 'Chevron Corporation', sector: 'Energy', exchange: 'NYSE', price: 156.78, change: 0.67, changePercent: 0.43 },
-  { symbol: 'PFE', name: 'Pfizer Inc.', sector: 'Healthcare', exchange: 'NYSE', price: 28.90, change: -0.12, changePercent: -0.41 },
-  { symbol: 'MRK', name: 'Merck & Co. Inc.', sector: 'Healthcare', exchange: 'NYSE', price: 123.45, change: 0.89, changePercent: 0.73 }
-];
 
-interface TickerOption {
-  symbol: string;
-  name: string;
-  sector: string;
-  exchange: string;
-  price: number;
-  change: number;
-  changePercent: number;
-}
 
 interface NewBacktestModalProps {
   open: boolean;
@@ -107,20 +65,23 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
   const [selectedTickers, setSelectedTickers] = useState<string[]>([]);
   const [strategyParams, setStrategyParams] = useState<Record<string, any>>({});
   const [capital, setCapital] = useState<string>('100000');
+  const [positionSizing, setPositionSizing] = useState<string>('0.03');
   const [backtestName, setBacktestName] = useState<string>('');
   const [tickerSearch, setTickerSearch] = useState<string>('');
-  const [currentPage, setCurrentPage] = useState<number>(0);
+  const [debouncedTickerSearch, setDebouncedTickerSearch] = useState<string>('');
   const [showTickerDropdown, setShowTickerDropdown] = useState<boolean>(false);
   const [parameterMode, setParameterMode] = useState<'manual' | 'optimize'>('manual');
-  const [startDate, setStartDate] = useState<string>('2024-01-01');
-  const [endDate, setEndDate] = useState<string>('2024-12-31');
+  const [startDate, setStartDate] = useState<Date>(new Date('2024-01-01'));
+  const [endDate, setEndDate] = useState<Date>(new Date('2024-12-31'));
   const [walkForwardConfig, setWalkForwardConfig] = useState({
-    enabled: false,
-    windowSize: 252, // days
-    stepSize: 63, // days (quarterly)
-    optimizationPeriod: 504, // days (2 years)
-    minTradeCount: 50
+    training_window: 30,
+    step_size: 7,
+    optimization_period: 7,
+    min_trade_count: 10
   });
+
+  // Optimization parameters for each symbol
+  const [optimizationParameters, setOptimizationParameters] = useState<Record<string, Record<string, { min: number; max: number; step: number }>>>({});
 
   // Fetch available strategies from vector-bt
   const { data: vectorBtStrategies, isLoading: isLoadingStrategies } = useQuery({
@@ -132,106 +93,152 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
     retry: 2,
   });
 
-  // Transform backend strategies to component format
-  const availableStrategies: Strategy[] = React.useMemo(() => {
-    if (!vectorBtStrategies?.strategies) {
-      // Fallback to hardcoded strategies when backend is unavailable
-      return [
-        {
-          id: 'ensemble',
-          name: 'Ensemble Strategy',
-          description: 'Combines RSI, VWAP, MACD, and Bollinger Bands indicators',
-          category: 'Ensemble',
-          icon: <Brain className="w-4 h-4" />,
-          defaultTickers: ['SPY', 'QQQ', 'IWM'],
-          parameters: [
-            // Required parameters
-            { name: 'rsi_weight', label: 'RSI Weight', type: 'number', defaultValue: 0.25, min: 0, max: 1, step: 0.05, description: 'Weight for RSI indicator in ensemble' },
-            { name: 'vwap_weight', label: 'VWAP Weight', type: 'number', defaultValue: 0.25, min: 0, max: 1, step: 0.05, description: 'Weight for VWAP indicator in ensemble' },
-            { name: 'macd_weight', label: 'MACD Weight', type: 'number', defaultValue: 0.25, min: 0, max: 1, step: 0.05, description: 'Weight for MACD indicator in ensemble' },
-            { name: 'bb_weight', label: 'Bollinger Bands Weight', type: 'number', defaultValue: 0.25, min: 0, max: 1, step: 0.05, description: 'Weight for Bollinger Bands in ensemble' },
-            { name: 'entry_threshold', label: 'Entry Threshold', type: 'number', defaultValue: 0.2, min: 0.1, max: 0.5, step: 0.05, description: 'Threshold for entry signals' },
-            // Optional parameters
-            { name: 'rsi_period', label: 'RSI Period', type: 'number', defaultValue: 14.0, min: 5.0, max: 50.0, description: 'Period for RSI calculation' },
-            { name: 'rsi_oversold', label: 'RSI Oversold', type: 'number', defaultValue: 30.0, min: 10.0, max: 40.0, description: 'RSI oversold threshold' },
-            { name: 'rsi_overbought', label: 'RSI Overbought', type: 'number', defaultValue: 70.0, min: 60.0, max: 90.0, description: 'RSI overbought threshold' },
-            { name: 'vwap_deviation', label: 'VWAP Deviation', type: 'number', defaultValue: 0.02, min: 0.01, max: 0.05, step: 0.01, description: 'VWAP deviation threshold' },
-            { name: 'macd_fast', label: 'MACD Fast Period', type: 'number', defaultValue: 12.0, min: 5, max: 20, description: 'MACD fast EMA period' },
-            { name: 'macd_slow', label: 'MACD Slow Period', type: 'number', defaultValue: 26.0, min: 20.0, max: 40.0, description: 'MACD slow EMA period' },
-            { name: 'macd_signal', label: 'MACD Signal Period', type: 'number', defaultValue: 9.0, min: 5, max: 15, description: 'MACD signal EMA period' },
-            { name: 'bb_period', label: 'Bollinger Bands Period', type: 'number', defaultValue: 20.0, min: 10, max: 30, description: 'Bollinger Bands period' },
-            { name: 'bb_std', label: 'Bollinger Bands Std Dev', type: 'number', defaultValue: 2.0, min: 1.0, max: 3.0, step: 0.1, description: 'Bollinger Bands standard deviation' },
-            { name: 'exit_threshold', label: 'Exit Threshold', type: 'number', defaultValue: 0.1, min: 0.05, max: 0.3, step: 0.05, description: 'Threshold for exit signals' },
-            { name: 'stop_loss', label: 'Stop Loss', type: 'number', defaultValue: 0.03, min: 0.01, max: 0.1, step: 0.01, description: 'Stop loss percentage' },
-            { name: 'take_profit', label: 'Take Profit', type: 'number', defaultValue: 0.08, min: 0.02, max: 0.2, step: 0.01, description: 'Take profit percentage' },
-            { name: 'position_size', label: 'Position Size', type: 'number', defaultValue: 0.1, min: 0.05, max: 0.5, step: 0.05, description: 'Position size as fraction of capital' },
-          ],
-        },
-        {
-          id: 'rsi_vwap',
-          name: 'RSI VWAP Strategy',
-          description: 'Combines RSI and VWAP indicators for trend following',
-          category: 'Technical',
-          icon: <TrendingUp className="w-4 h-4" />,
-          defaultTickers: ['SPY', 'QQQ'],
-          parameters: [
-            { name: 'rsi_period', label: 'RSI Period', type: 'number', defaultValue: 14.0, min: 5, max: 50, description: 'Period for RSI calculation' },
-            { name: 'rsi_oversold', label: 'RSI Oversold', type: 'number', defaultValue: 30.0, min: 10, max: 40, description: 'RSI oversold threshold' },
-            { name: 'rsi_overbought', label: 'RSI Overbought', type: 'number', defaultValue: 70.0, min: 60, max: 90, description: 'RSI overbought threshold' },
-            { name: 'vwap_deviation', label: 'VWAP Deviation', type: 'number', defaultValue: 0.02, min: 0.01, max: 0.05, step: 0.01, description: 'VWAP deviation threshold' },
-            { name: 'stop_loss', label: 'Stop Loss', type: 'number', defaultValue: 0.02, min: 0.01, max: 0.1, step: 0.01, description: 'Stop loss percentage' },
-            { name: 'take_profit', label: 'Take Profit', type: 'number', defaultValue: 0.04, min: 0.02, max: 0.2, step: 0.01, description: 'Take profit percentage' },
-          ],
-        },
-        {
-          id: 'mean_reversion',
-          name: 'Mean Reversion Strategy',
-          description: 'Bollinger Bands based mean reversion strategy',
-          category: 'Mean Reversion',
-          icon: <Activity className="w-4 h-4" />,
-          defaultTickers: ['SPY', 'IWM'],
-          parameters: [
-            { name: 'bb_period', label: 'Bollinger Bands Period', type: 'number', defaultValue: 20.0, min: 10, max: 30, description: 'Bollinger Bands period' },
-            { name: 'bb_std', label: 'Bollinger Bands Std Dev', type: 'number', defaultValue: 2.0, min: 1.0, max: 3.0, step: 0.1, description: 'Bollinger Bands standard deviation' },
-            { name: 'rsi_period', label: 'RSI Period', type: 'number', defaultValue: 14.0, min: 5, max: 50, description: 'Period for RSI calculation' },
-            { name: 'rsi_oversold', label: 'RSI Oversold', type: 'number', defaultValue: 30.0, min: 10, max: 40, description: 'RSI oversold threshold' },
-            { name: 'rsi_overbought', label: 'RSI Overbought', type: 'number', defaultValue: 70.0, min: 60, max: 90, description: 'RSI overbought threshold' },
-            { name: 'position_size', label: 'Position Size', type: 'number', defaultValue: 0.1, min: 0.05, max: 0.5, step: 0.05, description: 'Position size as fraction of capital' },
-          ],
-        }
-      ];
+  const { data: activeStrategies } = useQuery({
+    queryKey: ['active-strategies'],
+    queryFn: async () => {
+      const response = await apiService.strategies.getActive();
+      return response.data;
+    },
+  });
+
+  // Create comparison array with strategies that exist in both responses
+  const commonStrategies = useMemo(() => {
+    if (!vectorBtStrategies?.data?.strategies || !activeStrategies?.data?.strategies) {
+      return [];
     }
 
-    return vectorBtStrategies.strategies.map((strategy: any) => ({
-      id: strategy.name,
-      name: strategy.display_name || strategy.name,
-      description: strategy.description || `${strategy.name} trading strategy`,
-      category: 'Vector-BT',
-      icon: <Activity className="w-4 h-4" />,
-      defaultTickers: ['SPY', 'QQQ', 'IWM'],
-      parameters: strategy.parameters ? Object.entries(strategy.parameters).map(([key, param]: [string, any]) => ({
-        name: key,
-        label: key.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
-        type: param.type === 'int' ? 'number' : param.type === 'float' ? 'number' : param.type === 'bool' ? 'boolean' : 'number',
-        defaultValue: param.default,
-        min: param.min,
-        max: param.max,
-        description: `${key.replace(/_/g, ' ')} parameter`
-      })) : []
-    }));
-  }, [vectorBtStrategies]);
+    // Create a Set of active strategy IDs for faster lookup
+    const activeStrategyIds = new Set(
+      activeStrategies.data.strategies.map((strategy: any) => strategy.id)
+    );
 
-  // Fetch parameter ranges for selected strategy
-  const { data: parameterRanges } = useQuery({
-    queryKey: ['parameter-ranges', selectedStrategy],
+    // Filter vectorBt strategies to only include those that are also in activeStrategies
+    return vectorBtStrategies.data.strategies.filter((strategy: any) => 
+      activeStrategyIds.has(strategy.id)
+    );
+  }, [vectorBtStrategies, activeStrategies]);
+
+  // Debounce ticker search to avoid excessive API calls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedTickerSearch(tickerSearch);
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timer);
+  }, [tickerSearch]);
+
+  // Fetch active symbols with pagination support
+  const [symbolsPage, setSymbolsPage] = useState(1);
+  const [allActiveSymbols, setAllActiveSymbols] = useState<any[]>([]);
+  
+  const {data: activeSymbols, isLoading: isLoadingSymbols} = useQuery({
+    queryKey: ['active-symbols', symbolsPage, debouncedTickerSearch],
+    queryFn: async () => {
+      let url = `/api/symbols?status=active&page=${symbolsPage}&limit=50`;
+      if (debouncedTickerSearch) {
+        url += `&search=${debouncedTickerSearch}`;
+      }
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Failed to fetch symbols');
+      }
+      const result = await response.json();
+      return result.data;
+    },
+    enabled: open, // Only fetch when modal is open
+  });
+
+  // Accumulate symbols when new pages are loaded
+  React.useEffect(() => {
+    if (activeSymbols?.symbols) {
+      if (symbolsPage === 1 || debouncedTickerSearch) {
+        // Reset symbols for first page or when searching
+        setAllActiveSymbols(activeSymbols.symbols);
+      } else {
+        // Append symbols for subsequent pages
+        setAllActiveSymbols(prev => [...prev, ...activeSymbols.symbols]);
+      }
+    }
+  }, [activeSymbols, symbolsPage, debouncedTickerSearch]);
+
+  // Reset page when search changes
+  React.useEffect(() => {
+    setSymbolsPage(1);
+  }, [debouncedTickerSearch]);
+
+  const getStrategyParameters = async (strategyId: string) => {
+    const response = await apiService.strategies.getConfigParameters(strategyId);
+    return response.data;
+  };
+
+  // Use real strategy data - prioritize commonStrategies, fallback to vectorBtStrategies
+  const availableStrategies: Strategy[] = React.useMemo(() => {
+    // Prioritize strategies that are in both systems (commonStrategies)
+    let strategiesToUse = commonStrategies;
+    
+    // Fallback to vectorBtStrategies if commonStrategies is empty
+    if (strategiesToUse.length === 0 && vectorBtStrategies?.data?.strategies) {
+      strategiesToUse = vectorBtStrategies.data.strategies;
+    }
+
+    return strategiesToUse.map((strategy: any) => ({
+      id: strategy.id.toString(),
+      name: strategy.name,
+      description: strategy.description || `${strategy.name} trading strategy`,
+      category: strategy.processed_by_rust ? 'Algorithmic' : 'Manual',
+      icon: <Activity className="w-4 h-4" />,
+      defaultTickers: [],
+      parameters: []
+    }));
+  }, [commonStrategies, vectorBtStrategies]);
+
+  // Fetch dynamic parameters for selected strategy
+  const { data: strategyParameters, isLoading: isLoadingParameters } = useQuery({
+    queryKey: ['strategy-parameters', selectedStrategy],
     queryFn: async () => {
       if (!selectedStrategy) return null;
-      const response = await vectorBtService.strategies.getParameterRanges(selectedStrategy);
-      return response.data;
+      return await getStrategyParameters(selectedStrategy);
     },
     enabled: !!selectedStrategy,
     retry: 1,
   });
+
+  // Transform dynamic parameters into the Strategy parameter format
+  const currentStrategy = React.useMemo(() => {
+    const baseStrategy = availableStrategies.find(s => s.id === selectedStrategy);
+    
+    if (!baseStrategy || !strategyParameters?.data?.parameters) {
+      return baseStrategy;
+    }
+
+    // Transform API parameters to Strategy parameter format
+    const transformedParameters = Object.entries(strategyParameters.data.parameters).map(([key, param]) => {
+      const paramType = param === 'int' || param === 'float' ? 'number' as const : 
+                       param === 'bool' ? 'boolean' as const : 'number' as const;
+      
+      const defaultValue = param === 'int' ? 0 : 
+                          param === 'float' ? 0.0 : 
+                          param === 'bool' ? false : 0.0;
+
+      return {
+        name: key,
+        label: key.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
+        type: paramType,
+        defaultValue,
+        min: undefined,
+        max: undefined,
+        step: param === 'int' ? 1 : 0.01,
+        options: undefined,
+        description: undefined,
+      };
+    });
+
+    return {
+      ...baseStrategy,
+      parameters: transformedParameters
+    };
+  }, [availableStrategies, selectedStrategy, strategyParameters]);
+
 
   // Submit backtest mutation
   const submitBacktest = useMutation({
@@ -240,7 +247,6 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
       return response.data;
     },
     onSuccess: (data) => {
-      console.log('Backtest submitted successfully:', data);
       
       // Show success toast with job ID
       if (data.job_id) {
@@ -270,46 +276,16 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
       });
     },
   });
+  
+  // Use accumulated symbol data for ticker selection
+  const availableTickerData = allActiveSymbols;
 
-  // Use vector-bt strategies with fallback to mock data
-  const availableStrategiesData = React.useMemo(() => {
-    if (vectorBtStrategies?.strategies) {
-      return vectorBtStrategies.strategies.map((strategy: AvailableStrategy) => ({
-        id: strategy.name,
-        name: strategy.display_name,
-        description: strategy.description,
-        category: 'Vector-BT',
-        icon: <Activity className="w-4 h-4" />,
-        defaultTickers: ['AAPL', 'MSFT', 'GOOGL'], // Default tickers
-        parameters: Object.entries(strategy.parameters).map(([key, param]) => ({
-          name: key,
-          label: key.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
-          type: param.type === 'int' ? 'number' : param.type === 'float' ? 'number' : 'select',
-          defaultValue: param.default,
-          min: param.min,
-          max: param.max,
-          description: param.description,
-        }))
-      }));
+  // Function to load more symbols when reaching the end
+  const loadMoreSymbols = () => {
+    if (activeSymbols?.pagination?.hasNext && !isLoadingSymbols) {
+      setSymbolsPage(prev => prev + 1);
     }
-    return availableStrategies; // Fallback to mock data
-  }, [vectorBtStrategies]);
-
-  const currentStrategy = availableStrategiesData.find(s => s.id === selectedStrategy);
-  
-  const ITEMS_PER_PAGE = 10;
-  
-  const filteredTickers = tickerOptions.filter(ticker => 
-    ticker.symbol.toLowerCase().includes(tickerSearch.toLowerCase()) ||
-    ticker.name.toLowerCase().includes(tickerSearch.toLowerCase()) ||
-    ticker.sector.toLowerCase().includes(tickerSearch.toLowerCase())
-  );
-  
-  const totalPages = Math.ceil(filteredTickers.length / ITEMS_PER_PAGE);
-  const paginatedTickers = filteredTickers.slice(
-    currentPage * ITEMS_PER_PAGE,
-    (currentPage + 1) * ITEMS_PER_PAGE
-  );
+  };
 
   const handleStrategySelect = (strategyId: string) => {
     const strategy = availableStrategies.find(s => s.id === strategyId);
@@ -317,27 +293,30 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
       setSelectedStrategy(strategyId);
       setSelectedTickers(strategy.defaultTickers);
       
-      // Initialize parameters with defaults - ensure ALL parameters are included and properly typed
+      setStrategyParams({});
+      
+      setBacktestName(`${strategy.name} - ${new Date().toLocaleDateString()}`);
+      
+    }
+  };
+
+  // Initialize parameters when strategy parameters are loaded
+  React.useEffect(() => {
+    if (currentStrategy?.parameters && selectedStrategy) {
       const defaultParams: Record<string, any> = {};
-      strategy.parameters.forEach(param => {
+      currentStrategy.parameters.forEach(param => {
         // FORCE all numeric parameters to be floats with explicit conversion
         if (param.type === 'number') {
           // Use Number constructor to ensure proper float conversion
           defaultParams[param.name] = Number(param.defaultValue);
-          console.log(`Setting ${param.name} = ${defaultParams[param.name]} (type: ${typeof defaultParams[param.name]})`);
         } else {
           defaultParams[param.name] = param.defaultValue;
         }
       });
       setStrategyParams(defaultParams);
       
-      // Set default name
-      setBacktestName(`${strategy.name} - ${new Date().toLocaleDateString()}`);
-      
-      console.log(`Selected strategy: ${strategyId}, Parameters:`, defaultParams);
-      console.log('Parameter types after selection:', Object.entries(defaultParams).map(([k, v]) => `${k}: ${typeof v}`));
     }
-  };
+  }, [currentStrategy, selectedStrategy]);
 
 
   const handleTickerAdd = (tickerSymbol: string) => {
@@ -346,7 +325,6 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
     }
     setShowTickerDropdown(false);
     setTickerSearch('');
-    setCurrentPage(0);
   };
 
   const handleTickerRemove = (tickerSymbol: string) => {
@@ -369,14 +347,22 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
   };
 
   const handleCreateBacktest = () => {
-    // Find the current strategy to ensure we have all parameters
-    const currentStrategyData = availableStrategies.find(s => s.id === selectedStrategy);
-    
+    // Validate required fields based on parameter mode
+    if (parameterMode === 'manual' && (!startDate || !endDate)) {
+      toast({
+        title: "Missing Date Range",
+        description: "Start date and end date are required for manual parameter mode.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Ensure all parameters are included with their default values and proper types
-    let finalParameters = { ...strategyParams };
-    if (parameterMode === 'manual' && currentStrategyData) {
+    const finalParameters = { ...strategyParams };
+    console.log("finalParameters:", finalParameters);
+    if (parameterMode === 'manual' && currentStrategy) {
       // Make sure all required parameters are included, even if not modified by user
-      currentStrategyData.parameters.forEach(param => {
+      currentStrategy.parameters.forEach(param => {
         if (!(param.name in finalParameters)) {
           finalParameters[param.name] = param.defaultValue;
         }
@@ -396,45 +382,48 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
       });
     }
     
-    // Transform to our API's BacktestRequest format
+    
+    // Transform to API format based on parameter mode
     const backtestConfig = {
       strategy: selectedStrategy,
       symbols: selectedTickers,
-      start_date: startDate,
-      end_date: endDate,
-      initial_capital: parseInt(capital),
-      parameters: parameterMode === 'manual' ? finalParameters : undefined,
-      compare_with_spy: true,
-      parameter_mode: parameterMode === 'optimize' ? 'optimized' : 'fixed',
-      regime_parameters: walkForwardConfig.enabled ? {
-        window_size: walkForwardConfig.windowSize,
-        step_size: walkForwardConfig.stepSize,
-        optimization_period: walkForwardConfig.optimizationPeriod,
-        min_trade_count: walkForwardConfig.minTradeCount
-      } : undefined
+      startDate: parameterMode === 'manual' ? formatDate(startDate) : null,
+      endDate: parameterMode === 'manual' ? formatDate(endDate) : null,
+      initialCapital: parseInt(capital),
+      position_sizing: parseFloat(positionSizing),
+      parameters: parameterMode === 'manual' ? finalParameters : optimizationParameters,
+      walkForwardConfig: parameterMode === 'optimize' ? {
+        enabled: true,
+        ...walkForwardConfig
+      } : null,
+      optimizeConfig: parameterMode === 'optimize'
     };
-    
-    // Server-side type conversion will handle int->float conversion
-    console.log('Parameters to send:', finalParameters);
 
-    // Ensure all parameter values are floats (for numbers) before sending to backend
-    let backtestParameters = {};
-    if (finalParameters && typeof finalParameters === 'object') {
-      Object.entries(finalParameters).forEach(([key, value]) => {
-        if (typeof value === 'number') {
-          backtestParameters[key] = Number.parseFloat(value.toString());
-        } else if (!isNaN(value) && value !== '' && value !== null && value !== undefined) {
-          // If value is a string that can be converted to a number, convert to float
-          const floatVal = Number.parseFloat(value);
-          backtestParameters[key] = isNaN(floatVal) ? value : floatVal;
-        } else {
-          backtestParameters[key] = value;
-        }
-      });
+    // Debug: Log the parameters being sent
+    console.log('Frontend sending parameters:', JSON.stringify(backtestConfig.parameters, null, 2));
+  
+    console.log("backtestConfig:", backtestConfig);
+    
+    // Only process finalParameters for manual mode
+    if (parameterMode === 'manual') {
+      // Ensure all parameter values are floats (for numbers) before sending to backend
+      const backtestParameters: Record<string, any> = {};
+      if (finalParameters && typeof finalParameters === 'object') {
+        Object.entries(finalParameters).forEach(([key, value]) => {
+          if (typeof value === 'number') {
+            backtestParameters[key] = Number.parseFloat(value.toString());
+          } else if (!isNaN(value) && value !== '' && value !== null && value !== undefined) {
+            // If value is a string that can be converted to a number, convert to float
+            const floatVal = Number.parseFloat(value);
+            backtestParameters[key] = isNaN(floatVal) ? value : floatVal;
+          } else {
+            backtestParameters[key] = value;
+          }
+        });
+      }
+      backtestConfig.parameters = backtestParameters;
     }
-    console.log('Backtest parameters:', backtestParameters);
-    backtestConfig.parameters = backtestParameters;
-    console.log('Creating backtest with configuration:', backtestConfig);
+    // For optimization mode, keep the original optimizationParameters structure
     
     // Submit to our vector-bt backend
     submitBacktest.mutate(backtestConfig);
@@ -447,15 +436,17 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
     setCapital('100000');
     setBacktestName('');
     setTickerSearch('');
-    setCurrentPage(0);
     setShowTickerDropdown(false);
     setParameterMode('manual');
+    setStartDate(new Date('2024-01-01'));
+    setEndDate(new Date('2024-12-31'));
+    setSymbolsPage(1);
+    setAllActiveSymbols([]);
     setWalkForwardConfig({
-      enabled: false,
-      windowSize: 252,
-      stepSize: 63,
-      optimizationPeriod: 504,
-      minTradeCount: 50
+      training_window: 30,
+      step_size: 7,
+      optimization_period: 7,
+      min_trade_count: 10
     });
   };
 
@@ -492,44 +483,37 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
                 />
               </div>
               
-              <div className="flex items-center gap-4">
-                <Label htmlFor="capital" className="text-sm font-medium">
-                  Initial Capital ($)
-                </Label>
-                <Input
-                  id="capital"
-                  type="number"
-                  value={capital}
-                  onChange={(e) => setCapital(e.target.value)}
-                  className="w-32"
-                  min="10000"
-                  step="10000"
-                />
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCapital('50000')}
-                    className={capital === '50000' ? 'border-primary' : ''}
-                  >
-                    $50K
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCapital('100000')}
-                    className={capital === '100000' ? 'border-primary' : ''}
-                  >
-                    $100K
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCapital('500000')}
-                    className={capital === '500000' ? 'border-primary' : ''}
-                  >
-                    $500K
-                  </Button>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex items-center gap-4">
+                  <Label htmlFor="capital" className="text-sm font-medium">
+                    Initial Capital ($)
+                  </Label>
+                  <Input
+                    id="capital"
+                    type="number"
+                    value={capital}
+                    onChange={(e) => setCapital(e.target.value)}
+                    className="w-32"
+                    min="10000"
+                    step="10000"
+                  />
+                </div>
+                
+                <div className="flex items-center gap-4">
+                  <Label htmlFor="position-sizing" className="text-sm font-medium">
+                    Position Sizing
+                  </Label>
+                  <Input
+                    id="position-sizing"
+                    type="number"
+                    value={positionSizing}
+                    onChange={(e) => setPositionSizing(e.target.value)}
+                    className="w-32"
+                    min="0.01"
+                    max="1.0"
+                    step="0.01"
+                    placeholder="0.03"
+                  />
                 </div>
               </div>
             </CardContent>
@@ -623,7 +607,6 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
                       <Label className="text-sm font-medium">Selected Tickers</Label>
                       <div className="flex flex-wrap gap-2">
                         {selectedTickers.map((tickerSymbol) => {
-                          const ticker = tickerOptions.find(t => t.symbol === tickerSymbol);
                           const isDefault = currentStrategy?.defaultTickers.includes(tickerSymbol);
                           
                           return (
@@ -656,7 +639,6 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
                         value={tickerSearch}
                         onChange={(e) => {
                           setTickerSearch(e.target.value);
-                          setCurrentPage(0);
                           setShowTickerDropdown(true);
                         }}
                         onFocus={() => setShowTickerDropdown(true)}
@@ -678,100 +660,118 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
                             <CardContent className="p-0">
                               <ScrollArea className="h-64">
                               <div className="p-2 space-y-1">
-                                {paginatedTickers.length === 0 ? (
+                                {isLoadingSymbols && availableTickerData.length === 0 ? (
+                                  <div className="text-center text-muted-foreground py-4">
+                                    <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2" />
+                                    Loading tickers...
+                                  </div>
+                                ) : availableTickerData.length === 0 ? (
                                   <div className="text-center text-muted-foreground py-4">
                                     No tickers found
                                   </div>
                                 ) : (
-                                  paginatedTickers.map((tickerItem) => {
-                                    const isSelected = selectedTickers.includes(tickerItem.symbol);
-                                    
-                                    return (
-                                      <div
-                                        key={tickerItem.symbol}
-                                        className={`p-3 rounded cursor-pointer hover:bg-accent transition-colors ${
-                                          isSelected ? 'bg-primary/10 border border-primary/20' : ''
-                                        }`}
-                                        onClick={(e) => {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          if (!isSelected) {
-                                            handleTickerAdd(tickerItem.symbol);
-                                          }
-                                        }}
-                                      >
-                                        <div className="flex items-center justify-between">
-                                          <div className="flex-1">
-                                            <div className="flex items-center gap-2 mb-1">
-                                              <span className="font-medium text-sm">{tickerItem.symbol}</span>
-                                              <Badge variant="outline" className="text-xs">
-                                                {tickerItem.exchange}
-                                              </Badge>
-                                              {isSelected && (
-                                                <Badge variant="secondary" className="text-xs">
-                                                  Selected
+                                  <>
+                                    {availableTickerData.map((tickerItem: any) => {
+                                      const isSelected = selectedTickers.includes(tickerItem.symbol);
+                                      
+                                      return (
+                                        <div
+                                          key={tickerItem.symbol}
+                                          className={`p-3 rounded cursor-pointer hover:bg-accent transition-colors ${
+                                            isSelected ? 'bg-primary/10 border border-primary/20' : ''
+                                          }`}
+                                          onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            if (!isSelected) {
+                                              handleTickerAdd(tickerItem.symbol);
+                                            }
+                                          }}
+                                        >
+                                          <div className="flex items-center justify-between">
+                                            <div className="flex-1">
+                                              <div className="flex items-center gap-2 mb-1">
+                                                <span className="font-medium text-sm">{tickerItem.symbol}</span>
+                                                <Badge variant="outline" className="text-xs">
+                                                  {tickerItem.exchange || 'Unknown'}
                                                 </Badge>
+                                                {isSelected && (
+                                                  <Badge variant="secondary" className="text-xs">
+                                                    Selected
+                                                  </Badge>
+                                                )}
+                                              </div>
+                                              <div className="text-xs font-medium text-muted-foreground mb-1">
+                                                {tickerItem.name || tickerItem.symbol}
+                                              </div>
+                                              <div className="text-xs text-muted-foreground">
+                                                {tickerItem.sector || 'N/A'}
+                                              </div>
+                                            </div>
+                                            <div className="text-right">
+                                              {tickerItem.price ? (
+                                                <div className="text-sm font-medium">
+                                                  ${tickerItem.price.toFixed(2)}
+                                                </div>
+                                              ) : (
+                                                <div className="text-sm text-muted-foreground">
+                                                  N/A
+                                                </div>
                                               )}
-                                            </div>
-                                            <div className="text-xs font-medium text-muted-foreground mb-1">
-                                              {tickerItem.name}
-                                            </div>
-                                            <div className="text-xs text-muted-foreground">
-                                              {tickerItem.sector}
-                                            </div>
-                                          </div>
-                                          <div className="text-right">
-                                            <div className="text-sm font-medium">
-                                              ${tickerItem.price.toFixed(2)}
-                                            </div>
-                                            <div className={`text-xs ${
-                                              tickerItem.change >= 0 ? 'text-green-600' : 'text-red-600'
-                                            }`}>
-                                              {tickerItem.change >= 0 ? '+' : ''}{tickerItem.change.toFixed(2)} 
-                                              ({tickerItem.changePercent >= 0 ? '+' : ''}{tickerItem.changePercent.toFixed(2)}%)
+                                              {tickerItem.change && tickerItem.changePercent ? (
+                                                <div className={`text-xs ${
+                                                  tickerItem.change >= 0 ? 'text-green-600' : 'text-red-600'
+                                                }`}>
+                                                  {tickerItem.change >= 0 ? '+' : ''}{tickerItem.change.toFixed(2)} 
+                                                  ({tickerItem.changePercent >= 0 ? '+' : ''}{tickerItem.changePercent.toFixed(2)}%)
+                                                </div>
+                                              ) : (
+                                                <div className="text-xs text-muted-foreground">
+                                                  No price data
+                                                </div>
+                                              )}
                                             </div>
                                           </div>
                                         </div>
+                                      );
+                                    })}
+                                    
+                                    {/* Load More Button */}
+                                    {activeSymbols?.pagination?.hasNext && (
+                                      <div className="text-center py-2">
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            loadMoreSymbols();
+                                          }}
+                                          disabled={isLoadingSymbols}
+                                          className="w-full"
+                                        >
+                                          {isLoadingSymbols ? (
+                                            <>
+                                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                              Loading...
+                                            </>
+                                          ) : (
+                                            'Load More'
+                                          )}
+                                        </Button>
                                       </div>
-                                    );
-                                  })
+                                    )}
+                                  </>
                                 )}
                               </div>
                             </ScrollArea>
                             
-                            {/* Pagination */}
-                            {totalPages > 1 && (
-                              <div className="border-t p-2 flex items-center justify-between">
+                            {/* Status info */}
+                            {availableTickerData.length > 0 && (
+                              <div className="border-t p-2 text-center">
                                 <div className="text-xs text-muted-foreground">
-                                  Page {currentPage + 1} of {totalPages} ({filteredTickers.length} results)
-                                </div>
-                                <div className="flex gap-1">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      setCurrentPage(Math.max(0, currentPage - 1));
-                                    }}
-                                    disabled={currentPage === 0}
-                                    className="h-6 px-2"
-                                  >
-                                    Prev
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      setCurrentPage(Math.min(totalPages - 1, currentPage + 1));
-                                    }}
-                                    disabled={currentPage === totalPages - 1}
-                                    className="h-6 px-2"
-                                  >
-                                    Next
-                                  </Button>
+                                  Showing {availableTickerData.length} tickers
+                                  {activeSymbols?.pagination?.hasNext && ' (more available)'}
                                 </div>
                               </div>
                             )}
@@ -836,43 +836,34 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
                   )}
                 </div>
 
-                {/* Walk Forward Optimization */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm font-medium">Walk Forward Optimization</Label>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="walkforward-enabled"
-                        checked={walkForwardConfig.enabled}
-                        onCheckedChange={(checked) => 
-                          setWalkForwardConfig(prev => ({ ...prev, enabled: !!checked }))
-                        }
-                      />
-                      <Label htmlFor="walkforward-enabled" className="text-sm">
-                        Enable
-                      </Label>
+                {/* Walk Forward Optimization - Only show when optimize parameters is selected */}
+                {parameterMode === 'optimize' && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium">Walk Forward Configuration</Label>
+                      <Badge variant="secondary" className="text-xs">
+                        Required for optimization
+                      </Badge>
                     </div>
-                  </div>
-                  
-                  {walkForwardConfig.enabled && (
+                    
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-3 bg-accent/30 rounded-lg">
                       <div className="space-y-2">
-                        <Label htmlFor="window-size" className="text-xs font-medium">
+                        <Label htmlFor="training-window" className="text-xs font-medium">
                           Training Window (days)
                         </Label>
                         <Input
-                          id="window-size"
+                          id="training-window"
                           type="number"
-                          value={walkForwardConfig.windowSize}
+                          value={walkForwardConfig.training_window}
                           onChange={(e) => setWalkForwardConfig(prev => ({
                             ...prev,
-                            windowSize: parseInt(e.target.value) || 252
+                            training_window: parseInt(e.target.value) || 30
                           }))}
-                          min="30"
-                          max="1260"
+                          min="10"
+                          max="365"
                           className="h-8"
                         />
-                        <p className="text-xs text-muted-foreground">Data period for training</p>
+                        <p className="text-xs text-muted-foreground">Training period for optimization</p>
                       </div>
                       
                       <div className="space-y-2">
@@ -882,13 +873,13 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
                         <Input
                           id="step-size"
                           type="number"
-                          value={walkForwardConfig.stepSize}
+                          value={walkForwardConfig.step_size}
                           onChange={(e) => setWalkForwardConfig(prev => ({
                             ...prev,
-                            stepSize: parseInt(e.target.value) || 63
+                            step_size: parseInt(e.target.value) || 7
                           }))}
                           min="1"
-                          max="252"
+                          max="30"
                           className="h-8"
                         />
                         <p className="text-xs text-muted-foreground">Forward step interval</p>
@@ -901,13 +892,13 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
                         <Input
                           id="optimization-period"
                           type="number"
-                          value={walkForwardConfig.optimizationPeriod}
+                          value={walkForwardConfig.optimization_period}
                           onChange={(e) => setWalkForwardConfig(prev => ({
                             ...prev,
-                            optimizationPeriod: parseInt(e.target.value) || 504
+                            optimization_period: parseInt(e.target.value) || 7
                           }))}
-                          min="60"
-                          max="2520"
+                          min="1"
+                          max="30"
                           className="h-8"
                         />
                         <p className="text-xs text-muted-foreground">Period for parameter optimization</p>
@@ -920,25 +911,144 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
                         <Input
                           id="min-trades"
                           type="number"
-                          value={walkForwardConfig.minTradeCount}
+                          value={walkForwardConfig.min_trade_count}
                           onChange={(e) => setWalkForwardConfig(prev => ({
                             ...prev,
-                            minTradeCount: parseInt(e.target.value) || 50
+                            min_trade_count: parseInt(e.target.value) || 10
                           }))}
-                          min="10"
-                          max="1000"
+                          min="1"
+                          max="100"
                           className="h-8"
                         />
                         <p className="text-xs text-muted-foreground">Minimum trades required</p>
                       </div>
                     </div>
-                  )}
-                </div>
+
+                    {/* Optimization Parameters for each symbol */}
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium">Optimization Parameters by Symbol</Label>
+                      <div className="space-y-4">
+                        {selectedTickers.map((symbol) => (
+                          <Card key={symbol} className="border-dashed">
+                            <CardHeader className="pb-3">
+                              <div className="flex items-center justify-between">
+                                <CardTitle className="text-sm font-medium">{symbol} Parameters</CardTitle>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setOptimizationParameters(prev => ({
+                                      ...prev,
+                                      [symbol]: {
+                                        rsi_period: { min: 10, max: 20, step: 5 },
+                                        rsi_oversold: { min: 20, max: 30, step: 5 },
+                                        rsi_overbought: { min: 70, max: 80, step: 5 },
+                                        vwap_deviation: { min: 0.01, max: 0.05, step: 0.02 }
+                                      }
+                                    }));
+                                  }}
+                                >
+                                  Set Defaults
+                                </Button>
+                              </div>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                              {optimizationParameters[symbol] ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  {Object.entries(optimizationParameters[symbol]).map(([paramName, paramConfig]) => (
+                                    <div key={paramName} className="space-y-2 p-3 bg-muted/50 rounded-lg">
+                                      <Label className="text-xs font-medium capitalize">
+                                        {paramName.replace(/_/g, ' ')}
+                                      </Label>
+                                      <div className="grid grid-cols-3 gap-2">
+                                        <div>
+                                          <Label className="text-xs text-muted-foreground">Min</Label>
+                                          <Input
+                                            type="number"
+                                            step="0.001"
+                                            value={paramConfig.min}
+                                            onChange={(e) => {
+                                              const value = parseFloat(e.target.value) || 0;
+                                              setOptimizationParameters(prev => ({
+                                                ...prev,
+                                                [symbol]: {
+                                                  ...prev[symbol],
+                                                  [paramName]: { ...paramConfig, min: value }
+                                                }
+                                              }));
+                                            }}
+                                            className="h-8 text-xs"
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label className="text-xs text-muted-foreground">Max</Label>
+                                          <Input
+                                            type="number"
+                                            step="0.001"
+                                            value={paramConfig.max}
+                                            onChange={(e) => {
+                                              const value = parseFloat(e.target.value) || 0;
+                                              setOptimizationParameters(prev => ({
+                                                ...prev,
+                                                [symbol]: {
+                                                  ...prev[symbol],
+                                                  [paramName]: { ...paramConfig, max: value }
+                                                }
+                                              }));
+                                            }}
+                                            className="h-8 text-xs"
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label className="text-xs text-muted-foreground">Step</Label>
+                                          <Input
+                                            type="number"
+                                            step="0.001"
+                                            value={paramConfig.step}
+                                            onChange={(e) => {
+                                              const value = parseFloat(e.target.value) || 0.001;
+                                              setOptimizationParameters(prev => ({
+                                                ...prev,
+                                                [symbol]: {
+                                                  ...prev[symbol],
+                                                  [paramName]: { ...paramConfig, step: value }
+                                                }
+                                              }));
+                                            }}
+                                            className="h-8 text-xs"
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="text-center py-6 text-muted-foreground">
+                                  <p className="text-sm">Click Set Defaults button to configure optimization parameters for {symbol}</p>
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 
                 {/* Parameter Controls - Only show when manual mode */}
                 {parameterMode === 'manual' && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {currentStrategy.parameters.map((param: any) => (
+                  <div className="space-y-4">
+                    {isLoadingParameters ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span className="text-sm text-muted-foreground">Loading strategy parameters...</span>
+                        </div>
+                      </div>
+                    ) : currentStrategy?.parameters && currentStrategy.parameters.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {currentStrategy.parameters.map((param) => (
                       <div key={param.name} className="space-y-2">
                         <Label htmlFor={param.name} className="text-sm font-medium">
                           {param.label}
@@ -956,7 +1066,7 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent className="bg-background border border-border shadow-lg z-50">
-                              {param.options?.map((option: any) => (
+                              {param.options?.map((option: string) => (
                                 <SelectItem key={option} value={option}>
                                   {option}
                                 </SelectItem>
@@ -991,32 +1101,53 @@ export const NewBacktestModal: React.FC<NewBacktestModalProps> = ({
                         )}
                       </div>
                     ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-4 text-muted-foreground">
+                        {selectedStrategy ? 'No parameters configured for this strategy' : 'Select a strategy to configure parameters'}
+                      </div>
+                    )}
                   </div>
                 )}
-                
-                {/* Optimization Summary - Show when optimize mode */}
-                {parameterMode === 'optimize' && (
-                  <div className="bg-accent/30 rounded-lg p-4">
-                    <h4 className="font-medium mb-2">Parameter Optimization Summary</h4>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">Parameters:</span>
-                        <div className="font-medium">{currentStrategy.parameters.length} total</div>
+
+                {/* Date Range Selection - Only show when manual parameters mode and parameters are loaded */}
+                {parameterMode === 'manual' && currentStrategy?.parameters && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Date Range</CardTitle>
+                      <CardDescription>
+                        Select the start and end dates for your backtest
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="startDate" className="text-sm font-medium">
+                            Start Date
+                          </Label>
+                          <Input
+                            id="startDate"
+                            type="date"
+                            value={startDate.toISOString().split('T')[0]}
+                            onChange={(e) => setStartDate(new Date(e.target.value))}
+                            className="h-8"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="endDate" className="text-sm font-medium">
+                            End Date
+                          </Label>
+                          <Input
+                            id="endDate"
+                            type="date"
+                            value={endDate.toISOString().split('T')[0]}
+                            onChange={(e) => setEndDate(new Date(e.target.value))}
+                            className="h-8"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-muted-foreground">Optimization:</span>
-                        <div className="font-medium">Grid Search</div>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Metric:</span>
-                        <div className="font-medium">Sharpe Ratio</div>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Combinations:</span>
-                        <div className="font-medium">~1,000</div>
-                      </div>
-                    </div>
-                  </div>
+                    </CardContent>
+                  </Card>
                 )}
               </CardContent>
             </Card>

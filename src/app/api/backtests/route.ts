@@ -2,9 +2,80 @@ import { NextRequest, NextResponse } from "next/server";
 import { BacktestService } from "@/lib/db/services/backtestService";
 import { backtestService } from "@/lib/backtest/client";
 import { prisma } from "@/lib/db/prisma";
+import { ApiResponse } from "@/types/api";
+
+interface BacktestSymbol {
+  id?: number;
+  symbol: string;
+  name?: string;
+}
+
+interface BacktestStrategy {
+  id?: number;
+  name: string;
+}
+
+interface BacktestPeriod {
+  startDate: string;
+  endDate: string;
+}
+
+interface BacktestBasicMetrics {
+  totalReturn: number;
+  sharpeRatio: number;
+  totalTrades: number;
+  winRate: number;
+  maxDrawdown: number;
+}
+
+interface BacktestListItem {
+  id: number;
+  jobId: string | null;
+  status: string | null;
+  strategy: BacktestStrategy;
+  symbols: BacktestSymbol[];
+  period: BacktestPeriod;
+  initialCapital: number;
+  createdAt?: string;
+  completedAt?: string;
+  basicMetrics?: BacktestBasicMetrics;
+}
+
+interface WalkForwardConfig {
+  enabled: boolean;
+  training_window: number;
+  step_size: number;
+  optimization_period: number;
+  min_trade_count: number;
+}
+
+interface BacktestCreateRequest {
+  strategy: string;
+  symbols: string[];
+  startDate: string;
+  endDate: string;
+  initialCapital?: number;
+  position_sizing?: number;
+  parameters?: Record<string, unknown>;
+  walkForwardConfig?: WalkForwardConfig;
+  optimizeConfig?: boolean;
+  benchmark?: string;
+  commission?: number;
+  slippage?: number;
+  metadata?: Record<string, unknown>;
+}
+
+interface BacktestCreateResponse {
+  jobId: string;
+  status: string;
+  message?: string;
+  strategy: string;
+  symbols: string[];
+  estimatedCompletion?: string;
+}
 
 // Helper function to validate parameter types
-function isValidType(value: any, expectedType: string): boolean {
+function isValidType(value: unknown, expectedType: string): boolean {
   switch (expectedType.toLowerCase()) {
     case "float":
     case "number":
@@ -24,12 +95,12 @@ function isValidType(value: any, expectedType: string): boolean {
 
 // Helper function to validate strategy parameters against database schema
 async function validateStrategyParameters(
-  strategyName: string,
-  providedParams: Record<string, any>
+  strategyId: string,
+  providedParams: Record<string, unknown>
 ) {
   // Find strategy by name
   const strategy = await prisma.strategies.findFirst({
-    where: { name: strategyName, is_active: true },
+    where: { id: parseInt(strategyId), is_active: true },
     include: {
       strategy_config_parameters: {
         where: { is_active: true },
@@ -37,26 +108,17 @@ async function validateStrategyParameters(
     },
   });
 
-  console.log("strategy", strategy);
-
   if (!strategy) {
     throw new Error("Strategy not found");
   }
 
-  if (
-    !strategy.strategy_config_parameters ||
-    strategy.strategy_config_parameters.length === 0
-  ) {
+  if (!strategy.strategy_config_parameters) {
     throw new Error("Strategy configuration not found");
   }
 
   const strategyConfig = strategy.strategy_config_parameters;
 
-  console.log("strategyConfig", strategyConfig);
-
   const requiredParams = strategyConfig.parameters as Record<string, string>;
-
-  console.log("requiredParams", requiredParams);
 
   // Validate each required parameter exists and has correct type
   for (const [paramName, paramType] of Object.entries(requiredParams)) {
@@ -86,10 +148,21 @@ async function validateStrategyParameters(
   return { strategy, strategyConfig }; // Return strategy info for metadata
 }
 
-export async function GET(req: NextRequest) {
+interface GroupedBacktestResponse {
+  items: Record<string, BacktestListItem[]>;
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
+}
+
+export async function GET(
+  req: NextRequest
+): Promise<NextResponse<ApiResponse<GroupedBacktestResponse>>> {
   try {
     const { searchParams } = new URL(req.url);
-    const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 100); // Cap at 100
     const offset = parseInt(searchParams.get("offset") || "0");
     const statusFilter = searchParams.get("status");
     const strategyFilter = searchParams.get("strategy");
@@ -97,7 +170,11 @@ export async function GET(req: NextRequest) {
     const endDate = searchParams.get("endDate");
 
     // Build where clause for filtering
-    const whereClause: any = {};
+    const whereClause: {
+      status?: string;
+      strategies?: { name: { contains: string; mode: string } };
+      created_at?: { gte?: Date; lte?: Date };
+    } = {};
 
     if (statusFilter) {
       whereClause.status = statusFilter;
@@ -126,56 +203,75 @@ export async function GET(req: NextRequest) {
     const [backtests, totalCount] = await Promise.all([
       BacktestService.findAllBacktestRuns({
         skip: offset,
-        take: limit,
         where: whereClause,
       }),
       BacktestService.countBacktestRuns({ where: whereClause }),
     ]);
 
-    // Format response
-    const formattedBacktests = backtests.map((backtest: any) => ({
-      id: backtest.id,
-      jobId: backtest.job_id,
-      status: backtest.status,
-      strategy: {
-        id: backtest.strategies?.id,
-        name: backtest.strategies?.name || "Unknown Strategy",
+    // Format individual backtests first
+    const formattedBacktests = backtests.map(
+      (backtest: any): BacktestListItem => ({
+        id: backtest.id,
+        jobId: backtest.job_id,
+        status: backtest.status,
+        strategy: {
+          id: backtest.strategies?.id,
+          name: backtest.strategies?.name || "Unknown Strategy",
+        },
+        symbols:
+          backtest.backtest_symbols_backtest_symbols_backtest_idTobacktest_runs?.map(
+            (bs: {
+              symbols?: { id?: number; symbol: string; name?: string };
+            }) => ({
+              id: bs.symbols?.id,
+              symbol: bs.symbols?.symbol || "",
+              name: bs.symbols?.name,
+            })
+          ) || [],
+        period: {
+          startDate: backtest.start_date.toISOString(),
+          endDate: backtest.end_date.toISOString(),
+        },
+        initialCapital: Number(backtest.initial_capital),
+        createdAt: backtest.created_at?.toISOString(),
+        completedAt: backtest.completed_at?.toISOString(),
+        basicMetrics: backtest.backtest_metrics?.[0]
+          ? {
+              totalReturn:
+                Number(backtest.backtest_metrics[0].total_return) || 0,
+              sharpeRatio:
+                Number(backtest.backtest_metrics[0].sharpe_ratio) || 0,
+              totalTrades: backtest.backtest_metrics[0].total_trades || 0,
+              winRate: Number(backtest.backtest_metrics[0].win_rate) || 0,
+              maxDrawdown:
+                Number(backtest.backtest_metrics[0].max_drawdown) || 0,
+            }
+          : undefined,
+      })
+    );
+
+    // Group by job ID
+    const groupedByJobId = formattedBacktests.reduce(
+      (groups: Record<string, BacktestListItem[]>, backtest) => {
+        const jobId = backtest.jobId || "unknown";
+        if (!groups[jobId]) {
+          groups[jobId] = [];
+        }
+        groups[jobId].push(backtest);
+        return groups;
       },
-      symbols:
-        backtest.backtest_symbols_backtest_symbols_backtest_idTobacktest_runs?.map(
-          (bs: any) => ({
-            id: bs.symbols?.id,
-            symbol: bs.symbols?.symbol,
-            name: bs.symbols?.name,
-          })
-        ) || [],
-      period: {
-        startDate: backtest.start_date.toISOString(),
-        endDate: backtest.end_date.toISOString(),
-      },
-      initialCapital: Number(backtest.initial_capital),
-      createdAt: backtest.created_at?.toISOString(),
-      completedAt: backtest.completed_at?.toISOString(),
-      basicMetrics: backtest.backtest_metrics?.[0]
-        ? {
-            totalReturn: Number(backtest.backtest_metrics[0].total_return) || 0,
-            sharpeRatio: Number(backtest.backtest_metrics[0].sharpe_ratio) || 0,
-            totalTrades: backtest.backtest_metrics[0].total_trades || 0,
-            winRate: Number(backtest.backtest_metrics[0].win_rate) || 0,
-            maxDrawdown: Number(backtest.backtest_metrics[0].max_drawdown) || 0,
-          }
-        : undefined,
-    }));
+      {}
+    );
 
     return NextResponse.json({
       success: true,
       data: {
-        backtests: formattedBacktests,
+        items: groupedByJobId,
         pagination: {
-          limit,
+          limit: totalCount, // Since we removed pagination, return total count as limit
           offset,
           total: totalCount,
-          hasMore: offset + limit < totalCount,
+          hasMore: false, // No more pages since we return all items
         },
       },
     });
@@ -195,9 +291,11 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(
+  req: NextRequest
+): Promise<NextResponse<ApiResponse<BacktestCreateResponse>>> {
   try {
-    const body = await req.json();
+    const body: BacktestCreateRequest = await req.json();
 
     // Basic request validation
     const {
@@ -206,11 +304,10 @@ export async function POST(req: NextRequest) {
       startDate,
       endDate,
       initialCapital = 100000,
+      position_sizing = 0.03,
       parameters = {},
-      benchmark = "SPY",
-      commission = 0,
-      slippage = 0,
-      metadata = {},
+      walkForwardConfig,
+      optimizeConfig,
     } = body;
 
     if (!strategy) {
@@ -239,61 +336,67 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!startDate || !endDate) {
+    // Date validation - only required for normal backtests (not walk forward optimization)
+    const isWalkForwardMode = optimizeConfig && walkForwardConfig?.enabled;
+
+    if (!isWalkForwardMode && (!startDate || !endDate)) {
       return NextResponse.json(
         {
           success: false,
           error: {
             code: "MISSING_FIELD",
-            message: "Start date and end date are required",
+            message:
+              "Start date and end date are required for normal backtests",
           },
         },
         { status: 400 }
       );
     }
 
-    // Date validation
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const now = new Date();
+    // Date validation - only for normal backtests
+    if (!isWalkForwardMode && startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const now = new Date();
 
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: "INVALID_DATE",
-            message: "Invalid date format. Use YYYY-MM-DD",
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "INVALID_DATE",
+              message: "Invalid date format. Use YYYY-MM-DD",
+            },
           },
-        },
-        { status: 400 }
-      );
-    }
+          { status: 400 }
+        );
+      }
 
-    if (start >= end) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: "INVALID_DATE_RANGE",
-            message: "Start date must be before end date",
+      if (start >= end) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "INVALID_DATE_RANGE",
+              message: "Start date must be before end date",
+            },
           },
-        },
-        { status: 400 }
-      );
-    }
+          { status: 400 }
+        );
+      }
 
-    if (start > now) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: "INVALID_DATE_RANGE",
-            message: "Start date cannot be in the future",
+      if (start > now) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "INVALID_DATE_RANGE",
+              message: "Start date cannot be in the future",
+            },
           },
-        },
-        { status: 400 }
-      );
+          { status: 400 }
+        );
+      }
     }
 
     // Symbol validation
@@ -312,25 +415,137 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    try {
-      // Validate strategy parameters against database schema
-      const { strategy: strategyInfo, strategyConfig } =
-        await validateStrategyParameters(strategy, parameters);
+    // Walk Forward Config validation
+    if (walkForwardConfig && walkForwardConfig.enabled) {
+      const {
+        training_window,
+        step_size,
+        optimization_period,
+        min_trade_count,
+      } = walkForwardConfig;
 
-      // Prepare request for external service
-      const backtestRequest = {
-        strategy: strategy,
-        symbols,
-        start_date: startDate,
-        end_date: endDate,
-        initial_capital: initialCapital,
-        parameters,
-      };
+      if (!training_window || training_window <= 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "INVALID_WALK_FORWARD_CONFIG",
+              message: "Window size must be a positive number",
+            },
+          },
+          { status: 400 }
+        );
+      }
+
+      if (!step_size || step_size <= 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "INVALID_WALK_FORWARD_CONFIG",
+              message: "Step size must be a positive number",
+            },
+          },
+          { status: 400 }
+        );
+      }
+
+      if (!optimization_period || optimization_period <= 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "INVALID_WALK_FORWARD_CONFIG",
+              message: "Optimization period must be a positive number",
+            },
+          },
+          { status: 400 }
+        );
+      }
+
+      if (!min_trade_count || min_trade_count <= 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "INVALID_WALK_FORWARD_CONFIG",
+              message: "Minimum trade count must be a positive number",
+            },
+          },
+          { status: 400 }
+        );
+      }
+
+      if (step_size > training_window) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "INVALID_WALK_FORWARD_CONFIG",
+              message: "Step size cannot be larger than window size",
+            },
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    try {
+      // Look up strategy by ID to get strategy info
+      let strategyInfo;
+      if (optimizeConfig && walkForwardConfig?.enabled) {
+        // For WFO, just get strategy info without validating parameters
+        strategyInfo = await prisma.strategies.findFirst({
+          where: { id: parseInt(strategy), is_active: true },
+        });
+        if (!strategyInfo) {
+          throw new Error("Strategy not found");
+        }
+      } else {
+        // For manual mode, validate strategy parameters against database schema
+        const result = await validateStrategyParameters(strategy, parameters);
+        strategyInfo = result.strategy;
+      }
+
+      // Prepare request for unified endpoint based on scenario
+      let backtestRequest;
+
+      if (optimizeConfig && walkForwardConfig?.enabled) {
+        // Scenario 2: Walk Forward Backtest - Use optimization parameters from request
+        backtestRequest = {
+          strategyName: strategyInfo.name,
+          symbols,
+          startDate: null,
+          endDate: null,
+          initialCapital,
+          position_sizing: position_sizing,
+          enable_regime_position_sizing: true,
+          parameters: parameters,
+          walkForwardConfig: {
+            enabled: true,
+            training_window: walkForwardConfig.training_window || 30,
+            step_size: walkForwardConfig.step_size || 7,
+            optimization_period: walkForwardConfig.optimization_period || 7,
+            min_trade_count: walkForwardConfig.min_trade_count || 10,
+          },
+        };
+      } else {
+        // Scenario 1: Normal Backtest
+        backtestRequest = {
+          strategyName: strategyInfo.name,
+          symbols,
+          startDate,
+          endDate,
+          initialCapital,
+          position_sizing: position_sizing,
+          timeframe: "1h",
+          parameters,
+          walkForwardConfig: null,
+        };
+      }
 
       // Submit to external service (NO local database storage)
-      const result = await backtestService.submitBacktest(
-        backtestRequest as any
-      );
+      const result = await backtestService.submitBacktest(backtestRequest);
 
       // Return external service response directly
       return NextResponse.json({
@@ -344,28 +559,33 @@ export async function POST(req: NextRequest) {
           estimatedCompletion: result.estimatedDuration,
         },
       });
-    } catch (validationError: any) {
+    } catch (validationError: unknown) {
       // Handle parameter validation errors
-      if (validationError.message.includes("Strategy not found")) {
+      const errorMessage =
+        validationError instanceof Error
+          ? validationError.message
+          : String(validationError);
+
+      if (errorMessage.includes("Strategy not found")) {
         return NextResponse.json(
           {
             success: false,
             error: {
               code: "STRATEGY_NOT_FOUND",
-              message: validationError.message,
+              message: errorMessage,
             },
           },
           { status: 404 }
         );
       }
 
-      if (validationError.message.includes("configuration not found")) {
+      if (errorMessage.includes("configuration not found")) {
         return NextResponse.json(
           {
             success: false,
             error: {
               code: "STRATEGY_CONFIG_NOT_FOUND",
-              message: validationError.message,
+              message: errorMessage,
             },
           },
           { status: 404 }
@@ -378,7 +598,7 @@ export async function POST(req: NextRequest) {
           error: {
             code: "INVALID_PARAMETERS",
             message: "Parameter validation failed",
-            details: validationError.message,
+            details: errorMessage,
           },
         },
         { status: 400 }

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { HierarchicalNavigation } from '../shared/HierarchicalNavigation';
 import { Breadcrumbs } from '../shared/Breadcrumbs';
 import { StrategyApprovalModal } from '../strategy-lab/StrategyApprovalModal';
@@ -12,7 +13,6 @@ import { cn } from '../../lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Progress } from '../ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { 
   Users, 
@@ -20,13 +20,24 @@ import {
   Clock, 
   AlertTriangle,
   TrendingUp,
-  TrendingDown,
   Play,
   Pause,
   Settings,
-  BarChart3,
   GitCompare
 } from 'lucide-react';
+
+// Time formatting utility
+const formatTimeAgo = (dateString: string) => {
+  const now = new Date();
+  const date = new Date(dateString);
+  const diffMs = now.getTime() - date.getTime();
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffHours / 24);
+  
+  if (diffDays > 0) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+  if (diffHours > 0) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+  return 'Less than an hour ago';
+};
 
 export const StrategyCenterPage = () => {
   const { collapsed } = useNavigationState();
@@ -37,65 +48,86 @@ export const StrategyCenterPage = () => {
   const [compareModalOpen, setCompareModalOpen] = useState(false);
   const [selectedStrategy1, setSelectedStrategy1] = useState<string>('');
   const [selectedStrategy2, setSelectedStrategy2] = useState<string>('');
-  
-  const strategies = [
-    {
-      id: 1,
-      name: 'Momentum Alpha',
-      status: 'approved',
-      allocation: 250000,
-      performance: '+15.2%',
-      sharpe: 1.8,
-      maxDrawdown: '-8.3%',
-      positions: 12,
-      lastUpdate: '2 hours ago',
-      approver: 'Sarah Wilson',
-      isActive: true
+  const [actionLoadingStates, setActionLoadingStates] = useState<Record<number, string>>({});
+
+  // Fetch strategy center data from API
+  const { data: strategyCenterData, isLoading, refetch } = useQuery({
+    queryKey: ['strategy-center-data'],
+    queryFn: async () => {
+      const response = await fetch('/api/dashboard/strategy-center');
+      if (!response.ok) throw new Error('Failed to fetch strategy data');
+      const result = await response.json();
+      return result.data;
     },
-    {
-      id: 2,
-      name: 'Mean Reversion Beta',
-      status: 'pending',
-      allocation: 180000,
-      performance: '+8.7%',
-      sharpe: 1.2,
-      maxDrawdown: '-12.1%',
-      positions: 8,
-      lastUpdate: '30 min ago',
-      approver: null,
-      isActive: false
-    },
-    {
-      id: 3,
-      name: 'News Sentiment Gamma',
-      status: 'approved',
-      allocation: 150000,
-      performance: '+22.1%',
-      sharpe: 2.3,
-      maxDrawdown: '-5.9%',
-      positions: 6,
-      lastUpdate: '1 hour ago',
-      approver: 'Admin User',
-      isActive: true
-    },
-    {
-      id: 4,
-      name: 'Sector Rotation Delta',
-      status: 'rejected',
-      allocation: 0,
-      performance: '-3.2%',
-      sharpe: 0.4,
-      maxDrawdown: '-18.7%',
-      positions: 0,
-      lastUpdate: '1 day ago',
-      approver: 'Sarah Wilson',
-      isActive: false
-    }
-  ];
+    refetchInterval: 30000, // Auto-refresh every 30 seconds
+    retry: 2,
+  });
+
+  // Transform API data to component format
+  const strategies = useMemo(() => {
+    if (!strategyCenterData?.strategies) return [];
+    
+    return strategyCenterData.strategies.map((apiStrategy: any) => ({
+      id: apiStrategy.id,
+      name: apiStrategy.name,
+      status: apiStrategy.isActive ? 'approved' : 'pending',
+      allocation: apiStrategy.allocation,
+      performance: `${apiStrategy.performance >= 0 ? '+' : ''}${apiStrategy.performance.toFixed(1)}%`,
+      sharpe: apiStrategy.sharpe,
+      maxDrawdown: `-${Math.abs(apiStrategy.maxDrawdown).toFixed(1)}%`,
+      positions: apiStrategy.positions,
+      lastUpdate: formatTimeAgo(apiStrategy.lastUpdate || apiStrategy.createdAt),
+      approver: 'Admin User', // Default value
+      isActive: apiStrategy.isActive
+    }));
+  }, [strategyCenterData]);
+
+  // Use real summary statistics from API
+  const summaryStats = strategyCenterData?.summary || {
+    totalStrategies: 0,
+    activeStrategies: 0,
+    totalCapital: 0
+  };
 
   const pendingApprovals = strategies.filter(s => s.status === 'pending').length;
-  const activeStrategies = strategies.filter(s => s.isActive).length;
-  const totalAllocation = strategies.reduce((sum, s) => sum + s.allocation, 0);
+  const activeStrategies = summaryStats.activeStrategies;
+  const totalAllocation = summaryStats.totalCapital;
+
+  // Generic strategy action function
+  const executeStrategyAction = async (strategyId: number, action: string, rejectionReason?: string) => {
+    setActionLoadingStates(prev => ({ ...prev, [strategyId]: action }));
+    
+    try {
+      const response = await fetch('/api/dashboard/strategy-center', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          strategyId, 
+          action, 
+          rejectionReason: rejectionReason || null 
+        })
+      });
+      
+      if (!response.ok) throw new Error(`Failed to ${action} strategy`);
+      
+      // Refresh strategy data after successful action
+      await refetch();
+      
+      // Close any open modals
+      setIsModalOpen(false);
+      
+      return true;
+    } catch (error) {
+      console.error(`Failed to ${action} strategy:`, error);
+      return false;
+    } finally {
+      setActionLoadingStates(prev => {
+        const newState = { ...prev };
+        delete newState[strategyId];
+        return newState;
+      });
+    }
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -131,20 +163,45 @@ export const StrategyCenterPage = () => {
     }
   };
 
-  const handleApprove = (strategyId) => {
-    // Handle strategy approval logic
-    console.log('Approved strategy:', strategyId);
+  const handleApprove = async (strategyId: number) => {
+    await executeStrategyAction(strategyId, 'approve');
   };
 
-  const handleReject = (strategyId) => {
-    // Handle strategy rejection logic
-    console.log('Rejected strategy:', strategyId);
+  const handleReject = async (strategyId: number, rejectionReason?: string) => {
+    await executeStrategyAction(strategyId, 'reject', rejectionReason);
+  };
+
+  const handlePause = async (strategyId: number) => {
+    await executeStrategyAction(strategyId, 'pause');
+  };
+
+  const handleActivate = async (strategyId: number) => {
+    await executeStrategyAction(strategyId, 'activate');
   };
 
   const handleConfigure = (strategy) => {
     setSelectedConfigStrategy(strategy);
     setIsConfigModalOpen(true);
   };
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex">
+        <HierarchicalNavigation />
+        <main className={cn("flex-1 overflow-auto transition-all duration-300 content-with-dots", collapsed ? "ml-16" : "ml-64")}>
+          <div className="p-6">
+            <div className="flex items-center justify-center h-64">
+              <div className="flex flex-col items-center space-y-4">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                <p className="text-muted-foreground">Loading strategies...</p>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
   
   return (
     <div className="min-h-screen bg-background flex">
@@ -216,7 +273,7 @@ export const StrategyCenterPage = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-sm text-muted-foreground">Total Strategies</div>
-                      <div className="text-2xl font-bold">{strategies.length}</div>
+                      <div className="text-2xl font-bold">{summaryStats.totalStrategies}</div>
                     </div>
                     <Users className="w-8 h-8 text-primary" />
                   </div>
@@ -337,40 +394,58 @@ export const StrategyCenterPage = () => {
                               <Button 
                                 size="sm" 
                                 className="bg-success hover:bg-success/90 text-white"
-                                onClick={() => {
-                                  setSelectedStrategy(strategy);
-                                  setIsModalOpen(true);
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleApprove(strategy.id);
                                 }}
+                                disabled={!!actionLoadingStates[strategy.id]}
                               >
-                                <CheckCircle className="w-3 h-3 mr-1" />
-                                Approve
+                                {actionLoadingStates[strategy.id] === 'approve' ? (
+                                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1" />
+                                ) : (
+                                  <CheckCircle className="w-3 h-3 mr-1" />
+                                )}
+                                {actionLoadingStates[strategy.id] === 'approve' ? 'Approving...' : 'Approve'}
                               </Button>
                               <Button 
                                 size="sm" 
                                 variant="destructive"
-                                onClick={() => {
-                                  // Handle reject logic
-                                  console.log('Rejecting strategy:', strategy.name);
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleReject(strategy.id);
                                 }}
+                                disabled={!!actionLoadingStates[strategy.id]}
                               >
-                                <AlertTriangle className="w-3 h-3 mr-1" />
-                                Reject
+                                {actionLoadingStates[strategy.id] === 'reject' ? (
+                                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1" />
+                                ) : (
+                                  <AlertTriangle className="w-3 h-3 mr-1" />
+                                )}
+                                {actionLoadingStates[strategy.id] === 'reject' ? 'Rejecting...' : 'Reject'}
                               </Button>
                             </>
                           )}
                           {strategy.status === 'approved' && (
-                            <Button size="sm" variant="outline">
-                              {strategy.isActive ? (
-                                <>
-                                  <Pause className="w-3 h-3 mr-1" />
-                                  Pause
-                                </>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => strategy.isActive 
+                                ? handlePause(strategy.id) 
+                                : handleActivate(strategy.id)
+                              }
+                              disabled={!!actionLoadingStates[strategy.id]}
+                            >
+                              {actionLoadingStates[strategy.id] ? (
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary mr-1" />
+                              ) : strategy.isActive ? (
+                                <Pause className="w-3 h-3 mr-1" />
                               ) : (
-                                <>
-                                  <Play className="w-3 h-3 mr-1" />
-                                  Start
-                                </>
+                                <Play className="w-3 h-3 mr-1" />
                               )}
+                              {actionLoadingStates[strategy.id] 
+                                ? 'Processing...' 
+                                : strategy.isActive ? 'Pause' : 'Start'
+                              }
                             </Button>
                           )}
                           <Button size="sm" variant="outline" onClick={() => handleConfigure(strategy)}>
@@ -428,13 +503,29 @@ export const StrategyCenterPage = () => {
                             </div>
                           </div>
                           <div className="flex gap-2">
-                            <Button className="bg-success hover:bg-success/90">
-                              <CheckCircle className="w-4 h-4 mr-2" />
-                              Approve Strategy
+                            <Button 
+                              className="bg-success hover:bg-success/90"
+                              onClick={() => handleApprove(strategy.id)}
+                              disabled={!!actionLoadingStates[strategy.id]}
+                            >
+                              {actionLoadingStates[strategy.id] === 'approve' ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                              ) : (
+                                <CheckCircle className="w-4 h-4 mr-2" />
+                              )}
+                              {actionLoadingStates[strategy.id] === 'approve' ? 'Approving...' : 'Approve Strategy'}
                             </Button>
-                            <Button variant="destructive">
-                              <AlertTriangle className="w-4 h-4 mr-2" />
-                              Reject
+                            <Button 
+                              variant="destructive"
+                              onClick={() => handleReject(strategy.id)}
+                              disabled={!!actionLoadingStates[strategy.id]}
+                            >
+                              {actionLoadingStates[strategy.id] === 'reject' ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                              ) : (
+                                <AlertTriangle className="w-4 h-4 mr-2" />
+                              )}
+                              {actionLoadingStates[strategy.id] === 'reject' ? 'Rejecting...' : 'Reject'}
                             </Button>
                           </div>
                         </div>
@@ -493,9 +584,17 @@ export const StrategyCenterPage = () => {
                             </div>
                           </div>
                           <div className="flex gap-2">
-                            <Button variant="outline">
-                              <Pause className="w-4 h-4 mr-2" />
-                              Pause Strategy
+                            <Button 
+                              variant="outline"
+                              onClick={() => handlePause(strategy.id)}
+                              disabled={!!actionLoadingStates[strategy.id]}
+                            >
+                              {actionLoadingStates[strategy.id] === 'pause' ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2" />
+                              ) : (
+                                <Pause className="w-4 h-4 mr-2" />
+                              )}
+                              {actionLoadingStates[strategy.id] === 'pause' ? 'Pausing...' : 'Pause Strategy'}
                             </Button>
                             <Button variant="outline" onClick={() => handleConfigure(strategy)}>
                               <Settings className="w-4 h-4 mr-2" />

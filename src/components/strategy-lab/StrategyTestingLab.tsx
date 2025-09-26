@@ -1,283 +1,232 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { ScrollArea } from '../ui/scroll-area';
-import { Checkbox } from '../ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { 
-  Play, 
-  Send,
   BarChart3, 
   TestTube,
   TrendingUp,
-  Clock,
-  DollarSign,
   Target,
   Activity,
-  PieChart,
-  Eye,
-  CheckCircle,
-  Filter,
   ArrowRight,
   Calendar,
-  Users,
   TrendingDown,
   Percent,
-  Timer
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar } from 'recharts';
-import { TradeAnalytics } from '../analytics/TradeAnalytics';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, AreaChart, Area, Tooltip as RechartsTooltip } from 'recharts';
 import { EnhancedTradeAnalytics } from '../analytics/EnhancedTradeAnalytics';
-import { RegimeAnalysis } from '../analytics/RegimeAnalysis';
-import { AdvancedCharts } from '../live-trading/components/AdvancedCharts';
 import { NewBacktestModal } from './NewBacktestModal';
-import { vectorBtService } from '../../services/api';
-import { transformBacktestHistory, BacktestHistoryItem } from '../../types/vectorbt';
 
+// Define proper types for the backtest data
+interface BacktestPerformance {
+  totalReturn: number;
+  sharpeRatio: number;
+  maxDrawdown: number;
+  winRate: number;
+  totalTrades: number;
+}
 
-// Mock data for historical backtest runs
-const backtestRuns = [
-  {
-    id: 'BT_001',
-    name: 'Momentum Alpha + MACD',
-    indicators: ['RSI', 'MACD', 'SMA_20', 'SMA_50'],
-    tickers: ['AAPL', 'MSFT', 'GOOGL'],
-    allocatedPercentage: 25.0,
-    startDate: '2023-01-01',
-    endDate: '2024-12-31',
-    status: 'completed',
-    createdAt: '2025-01-15T14:30:00',
-    performance: {
-      totalReturn: 18.7,
-      sharpeRatio: 1.92,
-      maxDrawdown: -6.8,
-      winRate: 72.3,
-      totalTrades: 156,
-      avgWin: 2.3,
-      avgLoss: -1.1,
-      profitFactor: 2.1
-    },
-    regime: 'Bull Market',
-    confidence: 0.89
-  },
-  {
-    id: 'BT_002',
-    name: 'Mean Reversion Pro',
-    indicators: ['Bollinger Bands', 'RSI', 'Stochastic'],
-    tickers: ['SPY', 'QQQ', 'IWM'],
-    allocatedPercentage: 30.0,
-    startDate: '2023-06-01',
-    endDate: '2024-12-31',
-    status: 'completed',
-    createdAt: '2025-01-14T09:15:00',
-    performance: {
-      totalReturn: 14.2,
-      sharpeRatio: 1.67,
-      maxDrawdown: -9.3,
-      winRate: 68.9,
-      totalTrades: 203,
-      avgWin: 1.8,
-      avgLoss: -1.4,
-      profitFactor: 1.8
-    },
-    regime: 'Sideways',
-    confidence: 0.82
-  },
-  {
-    id: 'BT_003',
-    name: 'Breakout Strategy Enhanced',
-    indicators: ['Volume Profile', 'ATR', 'EMA_12', 'EMA_26'],
-    tickers: ['NVDA', 'TSLA', 'AMD'],
-    allocatedPercentage: 20.0,
-    startDate: '2023-03-01',
-    endDate: '2024-12-31',
-    status: 'completed',
-    createdAt: '2025-01-13T16:45:00',
-    performance: {
-      totalReturn: 24.8,
-      sharpeRatio: 2.15,
-      maxDrawdown: -11.2,
-      winRate: 64.7,
-      totalTrades: 89,
-      avgWin: 3.2,
-      avgLoss: -1.8,
-      profitFactor: 2.4
-    },
-    regime: 'High Volatility',
-    confidence: 0.91
-  },
-  {
-    id: 'BT_004',
-    name: 'Sector Rotation Beta',
-    indicators: ['Relative Strength', 'Momentum', 'Volume'],
-    tickers: ['XLK', 'XLF', 'XLE', 'XLV'],
-    allocatedPercentage: 15.0,
-    startDate: '2023-01-01',
-    endDate: '2024-12-31',
-    status: 'completed',
-    createdAt: '2025-01-12T11:20:00',
-    performance: {
-      totalReturn: 16.9,
-      sharpeRatio: 1.74,
-      maxDrawdown: -7.4,
-      winRate: 69.8,
-      totalTrades: 124,
-      avgWin: 2.1,
-      avgLoss: -1.3,
-      profitFactor: 1.9
-    },
-    regime: 'Bull Market',
-    confidence: 0.85
-  },
-  {
-    id: 'BT_005',
-    name: 'ML Enhanced Momentum',
-    indicators: ['Custom ML Signal', 'RSI', 'MACD'],
-    tickers: ['META', 'AMZN', 'NFLX'],
-    allocatedPercentage: 18.0,
-    startDate: '2023-09-01',
-    endDate: '2024-12-31',
-    status: 'failed',
-    createdAt: '2025-01-11T13:10:00',
-    performance: {
-      totalReturn: -5.2,
-      sharpeRatio: -0.34,
-      maxDrawdown: -18.7,
-      winRate: 42.1,
-      totalTrades: 67,
-      avgWin: 1.9,
-      avgLoss: -2.8,
-      profitFactor: 0.7
-    },
-    regime: 'Bear Market',
-    confidence: 0.45
+// Detailed results from the API
+interface BacktestResults {
+  status: string;
+  metadata: {
+    strategyName: string;
+    symbols: Array<{ symbol: string }>;
+    period: {
+      start: string;
+      end: string;
+    };
+    parameters: Record<string, any>;
+    jobId: string;
+    initialCapital: number;
+  };
+  metrics: {
+    totalReturn: number;
+    annualizedReturn: number;
+    sharpeRatio: number;
+    sortinoRatio: number;
+    maxDrawdown: number;
+    totalTrades: number;
+    winningTrades: number;
+    losingTrades: number;
+    winRate: number;
+    profitFactor: number;
+    netProfit: number;
+  };
+  equityCurve: Array<{
+    date: string;
+    value: number;
+    drawdown: number;
+  }>;
+  trades: Array<{
+    symbol: string;
+    timestamp: string;
+    side: "buy" | "sell";
+    quantity: number;
+    price: number;
+    value: number;
+    pnl: number;
+    position_size: number;
+  }>;
+  readyForApproval: boolean;
+}
+
+interface BacktestRun {
+  id: string;
+  name: string;
+  indicators: string[];
+  tickers: string[];
+  startDate: string;
+  endDate: string;
+  status: string;
+  createdAt: string;
+  performance: BacktestPerformance;
+}
+
+// Get performance evolution data - use actual data when available, otherwise fallback to mock
+const getPerformanceEvolution = (backtestId: string, equityCurve?: BacktestResults['equityCurve'], initialCapital?: number, metrics?: BacktestResults['metrics']) => {
+  if (equityCurve && equityCurve.length > 0) {
+    const capital = initialCapital || 0;
+    const sharpeRatio = metrics?.sharpeRatio || 0;
+    
+    return equityCurve.map((point, index) => {
+      const date = new Date(point.date);
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const formattedDate = `${month}/${day}`;
+      
+      return {
+        date: formattedDate,
+        value: point.value,
+        cumulativeReturn: Number(((point.value - capital) / capital * 100).toFixed(2)),
+        drawdown: Number((point.drawdown * 100).toFixed(2)),
+        sharpe: Number(sharpeRatio.toFixed(2)), // Use actual Sharpe ratio
+        trades: metrics?.totalTrades ? Math.ceil((index + 1) * metrics.totalTrades / equityCurve.length) : index + 1 // Approximate progressive trade count
+      };
+    });
   }
-];
-
-// Mock performance evolution data for chart
-const getPerformanceEvolution = (backtestId: string) => {
-  const baseData = [
-    { date: '2023-01', cumulativeReturn: 0, drawdown: 0, sharpe: 0, trades: 0 },
-    { date: '2023-02', cumulativeReturn: 2.1, drawdown: -1.2, sharpe: 0.5, trades: 8 },
-    { date: '2023-03', cumulativeReturn: 4.8, drawdown: -0.8, sharpe: 0.8, trades: 15 },
-    { date: '2023-04', cumulativeReturn: 3.2, drawdown: -2.1, sharpe: 0.6, trades: 23 },
-    { date: '2023-05', cumulativeReturn: 6.7, drawdown: -1.5, sharpe: 1.1, trades: 31 },
-    { date: '2023-06', cumulativeReturn: 9.4, drawdown: -1.8, sharpe: 1.3, trades: 39 },
-    { date: '2023-07', cumulativeReturn: 11.2, drawdown: -2.3, sharpe: 1.4, trades: 47 },
-    { date: '2023-08', cumulativeReturn: 8.9, drawdown: -4.1, sharpe: 1.2, trades: 55 },
-    { date: '2023-09', cumulativeReturn: 12.6, drawdown: -2.8, sharpe: 1.5, trades: 63 },
-    { date: '2023-10', cumulativeReturn: 15.3, drawdown: -1.9, sharpe: 1.6, trades: 71 },
-    { date: '2023-11', cumulativeReturn: 17.8, drawdown: -2.5, sharpe: 1.7, trades: 79 },
-    { date: '2023-12', cumulativeReturn: 19.2, drawdown: -3.2, sharpe: 1.8, trades: 87 },
-    { date: '2024-01', cumulativeReturn: 16.7, drawdown: -4.8, sharpe: 1.6, trades: 95 },
-    { date: '2024-02', cumulativeReturn: 18.9, drawdown: -3.1, sharpe: 1.7, trades: 103 },
-    { date: '2024-03', cumulativeReturn: 21.4, drawdown: -2.2, sharpe: 1.8, trades: 111 },
-    { date: '2024-04', cumulativeReturn: 23.1, drawdown: -1.8, sharpe: 1.9, trades: 119 },
-    { date: '2024-05', cumulativeReturn: 20.8, drawdown: -5.1, sharpe: 1.7, trades: 127 },
-    { date: '2024-06', cumulativeReturn: 22.3, drawdown: -3.4, sharpe: 1.8, trades: 135 },
-    { date: '2024-07', cumulativeReturn: 24.7, drawdown: -2.9, sharpe: 1.9, trades: 143 },
-    { date: '2024-08', cumulativeReturn: 21.5, drawdown: -6.8, sharpe: 1.6, trades: 151 },
-    { date: '2024-09', cumulativeReturn: 18.7, drawdown: -4.2, sharpe: 1.5, trades: 156 }
-  ];
-  
-  // Adjust data slightly based on strategy type
-  const multiplier = backtestId === 'BT_003' ? 1.3 : backtestId === 'BT_002' ? 0.8 : 1;
-  return baseData.map(d => ({
-    ...d,
-    cumulativeReturn: Number((d.cumulativeReturn * multiplier).toFixed(1)),
-    drawdown: Number((d.drawdown * multiplier).toFixed(1)),
-    sharpe: Number((d.sharpe * (multiplier * 0.9 + 0.1)).toFixed(2))
-  }));
 };
 
 export const StrategyTestingLab = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   
-  // Fetch backtest history from API
+  // Fetch backtest history from API (all records, no backend filtering)
   const { data: backtestHistoryData, isLoading: isLoadingHistory, error: historyError } = useQuery({
-    queryKey: ['backtest-history'],
+    queryKey: ['backtest-history-all'],
     queryFn: async () => {
       const response = await fetch('/api/backtests');
       if (!response.ok) throw new Error('Failed to fetch backtest history');
       const result = await response.json();
       return result.data;
     },
-    refetchInterval: 10000, // Poll every 10 seconds for updates
+    refetchInterval: 600000, // Poll every 10 minutes for updates
     retry: 2,
     retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 30000),
   });
 
-  // Fetch backtest queue status
-  const { data: activeJobsData, isLoading: isLoadingJobs } = useQuery({
-    queryKey: ['backtest-queue'],
-    queryFn: async () => {
-      const response = await fetch('/api/backtests/queue');
-      if (!response.ok) throw new Error('Failed to fetch backtest queue');
-      const result = await response.json();
-      return result.data;
-    },
-    refetchInterval: 5000, // Poll every 5 seconds for job updates
-    retry: 2,
-  });
-
-  // Transform vector-bt data to component format, with fallback to mock data
-  const backtestRuns = React.useMemo(() => {
-    if (backtestHistoryData && Array.isArray(backtestHistoryData)) {
-      return transformBacktestHistory(backtestHistoryData);
+  // Transform grouped API data to job groups
+  const jobGroups = React.useMemo(() => {
+    if (backtestHistoryData && backtestHistoryData.items && typeof backtestHistoryData.items === 'object') {
+      return Object.entries(backtestHistoryData.items).map(([jobId, backtests]: [string, any[]]) => {
+        const firstBacktest = backtests[0];
+        
+        const allSymbols = backtests.reduce((symbols: string[], backtest: any) => {
+          const backtestSymbols = backtest.symbols.map((s: any) => s.symbol);
+          return [...symbols, ...backtestSymbols];
+        }, []);
+        const uniqueSymbols = [...new Set(allSymbols)];
+        
+        return {
+          jobId,
+          name: firstBacktest.strategy.name.toUpperCase() + ' Strategy',
+          strategy: firstBacktest.strategy,
+          symbols: uniqueSymbols,
+          status: firstBacktest.status,
+          createdAt: firstBacktest.createdAt,
+          period: firstBacktest.period,
+          backtestRuns: backtests.map((bt: any) => ({
+            id: bt.id.toString(),
+            name: bt.symbols.map((s: any) => s.symbol).join(', '),
+            symbols: bt.symbols.map((s: any) => s.symbol),
+            status: bt.status,
+            ...bt // Include all original data for compatibility
+          }))
+        };
+      });
     }
-    // Fallback to minimal mock data when API is unavailable
-    return [{
-      id: 'BT_MOCK_001',
-      name: 'Sample Strategy (Backend Offline)',
-      indicators: ['RSI', 'MACD'],
-      tickers: ['AAPL', 'MSFT'],
-      allocatedPercentage: 25.0,
-      startDate: '2023-01-01',
-      endDate: '2024-12-31',
-      status: 'completed',
-      createdAt: '2025-01-15T14:30:00',
-      performance: {
-        totalReturn: 18.7,
-        sharpeRatio: 1.92,
-        maxDrawdown: -6.8,
-        winRate: 72.3,
-        totalTrades: 156,
-        avgWin: 2.3,
-        avgLoss: -1.1,
-        profitFactor: 2.1
-      },
-      regime: 'Bull Market',
-      confidence: 0.89
-    }];
+    return [];
   }, [backtestHistoryData]);
 
-  const [selectedBacktest, setSelectedBacktest] = useState(null);
+  const [selectedJob, setSelectedJob] = useState<any>(null);
+  const [selectedBacktestRunId, setSelectedBacktestRunId] = useState<string>('');
   const [activeTab, setActiveTab] = useState('overview');
   const [showNewBacktestModal, setShowNewBacktestModal] = useState(false);
 
-  // Update selectedBacktest when backtestRuns data changes
-  useEffect(() => {
-    if (backtestRuns.length > 0 && (!selectedBacktest || !backtestRuns.find(bt => bt.id === selectedBacktest?.id))) {
-      setSelectedBacktest(backtestRuns[0]);
-    }
-  }, [backtestRuns, selectedBacktest]);
+  // Fetch detailed results when a backtest run is selected
+  const { data: backtestResults, isLoading: isLoadingResults } = useQuery({
+    queryKey: ['backtest-results', selectedBacktestRunId],
+    queryFn: async () => {
+      if (!selectedBacktestRunId) return null;
+      const response = await fetch(`/api/backtests/${selectedBacktestRunId}/results`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch backtest results');
+      }
+      const result = await response.json();
+      return result.data as BacktestResults;
+    },
+    enabled: !!selectedBacktestRunId && !!selectedJob,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 30000),
+  });
 
-  const filteredBacktests = backtestRuns.filter(bt => 
-    filterStatus === 'all' || bt.status === filterStatus
+  // Filter job groups by status
+  const filteredJobs = jobGroups.filter((job: any) =>
+    filterStatus === 'all' || job.status === filterStatus
   );
 
-  const sendToApproval = () => {
-    console.log('Sending backtest to approval:', selectedBacktest.id);
-    // This would integrate with Strategy Approval in a real implementation
-  };
+  // Get selected backtest from selectedJob and selectedBacktestRunId for compatibility with existing code
+  const selectedBacktest: BacktestRun | null = React.useMemo(() => {
+    if (!selectedJob || !selectedBacktestRunId) return null;
+    
+    const selectedRun = selectedJob.backtestRuns.find((run: any) => run.id === selectedBacktestRunId);
+    if (!selectedRun) return null;
 
-  const handleNewBacktest = (config: any) => {
-    console.log('Creating new backtest with config:', config);
-    // This would start a new backtest with the configuration
+    // Transform to BacktestRun format for compatibility
+    return {
+      id: selectedRun.id,
+      name: selectedJob.name,
+      indicators: [selectedJob.strategy.name.toUpperCase()],
+      tickers: selectedJob.symbols,
+      startDate: new Date(selectedJob.period.startDate).toISOString().split('T')[0],
+      endDate: new Date(selectedJob.period.endDate).toISOString().split('T')[0],
+      status: selectedRun.status,
+      createdAt: selectedJob.createdAt,
+      performance: selectedRun.basicMetrics ? {
+        totalReturn: parseFloat((selectedRun.basicMetrics.totalReturn * 100).toFixed(2)),
+        sharpeRatio: parseFloat(selectedRun.basicMetrics.sharpeRatio.toFixed(2)),
+        maxDrawdown: parseFloat((selectedRun.basicMetrics.maxDrawdown * 100).toFixed(2)),
+        winRate: parseFloat((selectedRun.basicMetrics.winRate * 100).toFixed(1)),
+        totalTrades: selectedRun.basicMetrics.totalTrades
+      } : {
+        totalReturn: 0,
+        sharpeRatio: 0,
+        maxDrawdown: 0,
+        winRate: 0,
+        totalTrades: 0
+      }
+    };
+  }, [selectedJob, selectedBacktestRunId]);
+
+  const sendToApproval = () => {
+    if (selectedBacktest) {
+      console.log('Sending backtest to approval:', selectedBacktest.id);
+      // This would integrate with Strategy Approval in a real implementation
+    }
   };
 
   const getStatusCircle = (status: string) => {
@@ -338,7 +287,7 @@ export const StrategyTestingLab = () => {
     );
   };
 
-  const getPerformanceBadge = (performance: any) => {
+  const getPerformanceBadge = (performance: BacktestPerformance) => {
     if (performance.totalReturn <= 10 || performance.sharpeRatio <= 1.0) {
       return <Badge className="bg-destructive/20 text-destructive border-destructive/30">Poor</Badge>;
     }
@@ -383,12 +332,80 @@ export const StrategyTestingLab = () => {
     );
   }
 
-  // Don't render if no backtest selected yet
-  if (!selectedBacktest) {
+  // Show jobs list if no job selected yet  
+  if (!selectedJob) {
     return (
       <div className="flex flex-col min-h-[calc(100vh-8rem)] space-y-6">
-        <div className="flex items-center justify-center h-64">
-          <p className="text-muted-foreground">No backtest data available</p>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
+          {/* Jobs List */}
+          <Card className="lg:col-span-3 flex flex-col min-h-0">
+            <CardHeader>
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <TestTube className="w-5 h-5" />
+                    Backtest Jobs
+                  </CardTitle>
+                  <Select value={filterStatus} onValueChange={setFilterStatus}>
+                    <SelectTrigger className="w-28">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="failed">Failed</SelectItem>
+                      <SelectItem value="running">Running</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="flex-1 flex flex-col min-h-0">
+              <ScrollArea className="flex-1 min-h-0">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredJobs.map((job) => (
+                    <div
+                      key={job.jobId}
+                      className="p-4 border rounded-lg cursor-pointer transition-colors hover:bg-surface-elevated hover:border-primary"
+                      onClick={() => {
+                        setSelectedJob(job);
+                        // Auto-select first backtest run when job is selected
+                        if (job.backtestRuns.length > 0) {
+                          setSelectedBacktestRunId(job.backtestRuns[0].id);
+                        }
+                      }}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex gap-1">
+                          {getStatusCircle(job.status)}
+                        </div>
+                      </div>
+                      
+                      <div className="text-sm font-semibold mb-1">{job.name}</div>
+                      <div className="text-xs text-muted-foreground mb-2">
+                        Job: {job.jobId.slice(0, 8)}...
+                      </div>
+                      
+                      {/* Show combined symbols */}
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {job.symbols.map(symbol => (
+                          <Badge key={symbol} variant="secondary" className="text-xs">
+                            {symbol}
+                          </Badge>
+                        ))}
+                      </div>
+                      
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Calendar className="w-3 h-3" />
+                        <span>{new Date(job.createdAt).toLocaleDateString()}</span>
+                        <span>• {job.backtestRuns.length} runs</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
@@ -398,79 +415,67 @@ export const StrategyTestingLab = () => {
     <div className="flex flex-col min-h-[calc(100vh-8rem)] space-y-6">
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
-        {/* Backtest List */}
+        {/* Selected Job Info */}
         <Card className="lg:col-span-1 flex flex-col min-h-0">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <TestTube className="w-5 h-5" />
-                Backtest Runs
+                Selected Job
               </CardTitle>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                  <SelectItem value="failed">Failed</SelectItem>
-                  <SelectItem value="running">Running</SelectItem>
-                </SelectContent>
-              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSelectedJob(null);
+                  setSelectedBacktestRunId('');
+                }}
+              >
+                ← Back to Jobs
+              </Button>
             </div>
           </CardHeader>
           <CardContent className="flex-1 flex flex-col min-h-0">
-            <ScrollArea className="flex-1 min-h-0">
-              <div className="space-y-3">
-                {filteredBacktests.map((backtest) => (
-                  <div
-                    key={backtest.id}
-                    className={`p-3 border rounded-lg cursor-pointer transition-colors hover:bg-surface-elevated ${
-                      selectedBacktest.id === backtest.id ? 'bg-primary/10 border-primary' : ''
-                    }`}
-                    onClick={() => setSelectedBacktest(backtest)}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex gap-1">
-                        {getStatusCircle(backtest.status)}
-                        {backtest.status === 'completed' && getPerformanceBadge(backtest.performance)}
-                      </div>
-                    </div>
-                    
-                    <div className="text-sm font-semibold mb-1">{backtest.name}</div>
-                    <div className="text-xs text-muted-foreground mb-2">{backtest.id}</div>
-                    
-                    {backtest.status === 'completed' && (
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <span className="text-muted-foreground">Return:</span>
-                          <div className={`font-bold ${backtest.performance.totalReturn > 0 ? 'text-success' : 'text-destructive'}`}>
-                            {backtest.performance.totalReturn > 0 ? '+' : ''}{backtest.performance.totalReturn}%
-                          </div>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Sharpe:</span>
-                          <div className="font-bold">{backtest.performance.sharpeRatio}</div>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Max DD:</span>
-                          <div className="font-bold text-destructive">{backtest.performance.maxDrawdown}%</div>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Trades:</span>
-                          <div className="font-bold">{backtest.performance.totalTrades}</div>
-                        </div>
-                      </div>
-                    )}
-                    
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
-                      <Calendar className="w-3 h-3" />
-                      <span>{new Date(backtest.createdAt).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-                ))}
+            <div className="space-y-4">
+              <div>
+                <div className="text-sm font-semibold">{selectedJob.name}</div>
+                <div className="text-xs text-muted-foreground mb-2">
+                  Job: {selectedJob.jobId.slice(0, 8)}...
+                </div>
+                
+                {/* Show combined symbols */}
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {selectedJob.symbols.map(symbol => (
+                    <Badge key={symbol} variant="secondary" className="text-xs">
+                      {symbol}
+                    </Badge>
+                  ))}
+                </div>
+                
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Calendar className="w-3 h-3" />
+                  <span>{new Date(selectedJob.createdAt).toLocaleDateString()}</span>
+                  <span>• {selectedJob.backtestRuns.length} runs</span>
+                </div>
               </div>
-            </ScrollArea>
+
+              {/* Dropdown for selecting backtest runs */}
+              <div>
+                <label className="text-sm font-medium mb-2 block">Select Backtest Run:</label>
+                <Select value={selectedBacktestRunId} onValueChange={setSelectedBacktestRunId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select backtest run" />
+                  </SelectTrigger>
+                  <SelectContent className="z-50">
+                    {selectedJob.backtestRuns.map((run: any) => (
+                      <SelectItem key={run.id} value={run.id}>
+                        {run.name} - ID: {run.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -481,16 +486,16 @@ export const StrategyTestingLab = () => {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <BarChart3 className="w-5 h-5" />
-                  {selectedBacktest.name}
+                  {selectedBacktest?.name}
                 </CardTitle>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline">{selectedBacktest.id}</Badge>
-                  {getStatusCircle(selectedBacktest.status)}
-                  {selectedBacktest.status === 'completed' && getPerformanceBadge(selectedBacktest.performance)}
+                  <Badge variant="outline">{selectedBacktest?.id}</Badge>
+                  {getStatusCircle(selectedBacktest?.status ?? '')}
+                  {selectedBacktest?.status === 'completed' && getPerformanceBadge(selectedBacktest.performance)}
                 </div>
               </div>
               <div className="flex gap-2">
-                {selectedBacktest.status === 'completed' && selectedBacktest.performance.totalReturn > 10 && (
+                {selectedBacktest?.status === 'completed' && selectedBacktest.performance.totalReturn > 10 && (
                   <Button size="sm" onClick={sendToApproval}>
                     <ArrowRight className="w-4 h-4 mr-2" />
                     Send to Approval
@@ -500,13 +505,20 @@ export const StrategyTestingLab = () => {
             </div>
           </CardHeader>
           <CardContent>
+            {isLoadingResults && selectedBacktest?.status === 'completed' && (
+              <div className="flex items-center justify-center py-8">
+                <div className="flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                  <span className="text-sm text-muted-foreground">Loading detailed results...</span>
+                </div>
+              </div>
+            )}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="performance">Performance</TabsTrigger>
                 <TabsTrigger value="trades">Trades</TabsTrigger>
                 
-                <TabsTrigger value="charts">Charts</TabsTrigger>
               </TabsList>
 
               <TabsContent value="overview" className="space-y-4">
@@ -518,7 +530,7 @@ export const StrategyTestingLab = () => {
                         <div>
                           <span className="text-sm text-muted-foreground">Indicators:</span>
                           <div className="flex flex-wrap gap-1 mt-1">
-                            {selectedBacktest.indicators.map(indicator => (
+                            {selectedBacktest?.indicators.map(indicator => (
                               <Badge key={indicator} variant="outline" className="text-xs">
                                 {indicator}
                               </Badge>
@@ -528,7 +540,7 @@ export const StrategyTestingLab = () => {
                         <div>
                           <span className="text-sm text-muted-foreground">Tickers:</span>
                           <div className="flex flex-wrap gap-1 mt-1">
-                            {selectedBacktest.tickers.map(ticker => (
+                            {selectedBacktest?.tickers.map(ticker => (
                               <Badge key={ticker} variant="secondary" className="text-xs">
                                 {ticker}
                               </Badge>
@@ -536,52 +548,46 @@ export const StrategyTestingLab = () => {
                           </div>
                         </div>
                         <div>
-                          <span className="text-sm text-muted-foreground">Allocated Percentage:</span>
-                          <div className="font-bold">{selectedBacktest.allocatedPercentage}%</div>
-                        </div>
-                        <div>
                           <span className="text-sm text-muted-foreground">Period:</span>
-                          <div className="font-mono text-sm">{selectedBacktest.startDate} to {selectedBacktest.endDate}</div>
+                          <div className="font-mono text-sm">{selectedBacktest?.startDate} to {selectedBacktest?.endDate}</div>
                         </div>
                       </div>
                     </div>
                   </div>
                   
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="font-semibold mb-2">Regime Analysis</h4>
-                      <div className="space-y-2">
-                        <div>
-                          <span className="text-sm text-muted-foreground">Detected Regime:</span>
-                          <Badge variant="default" className="ml-2">{selectedBacktest.regime}</Badge>
-                        </div>
-                        <div>
-                          <span className="text-sm text-muted-foreground">Confidence:</span>
-                          <div className="font-bold">{(selectedBacktest.confidence * 100).toFixed(1)}%</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
                 </div>
 
-                {selectedBacktest.status === 'completed' && (
+                {selectedBacktest?.status === 'completed' && (
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="p-4 border rounded-lg text-center">
-                      <div className={`text-2xl font-bold ${selectedBacktest.performance.totalReturn > 0 ? 'text-success' : 'text-destructive'}`}>
-                        {selectedBacktest.performance.totalReturn > 0 ? '+' : ''}{selectedBacktest.performance.totalReturn}%
+                      <div className={`text-2xl font-bold ${(backtestResults?.metrics.totalReturn ?? selectedBacktest.performance.totalReturn) > 0 ? 'text-success' : 'text-destructive'}`}>
+                        {(backtestResults?.metrics.totalReturn ?? selectedBacktest.performance.totalReturn) > 0 ? '+' : ''}
+                        {backtestResults?.metrics.totalReturn 
+                          ? (backtestResults.metrics.totalReturn * 100).toFixed(2) 
+                          : selectedBacktest.performance.totalReturn}%
                       </div>
                       <div className="text-sm text-muted-foreground">Total Return</div>
                     </div>
                     <div className="p-4 border rounded-lg text-center">
-                      <div className="text-2xl font-bold">{selectedBacktest.performance.sharpeRatio}</div>
+                      <div className="text-2xl font-bold">
+                        {backtestResults?.metrics.sharpeRatio?.toFixed(2) ?? selectedBacktest.performance.sharpeRatio}
+                      </div>
                       <div className="text-sm text-muted-foreground">Sharpe Ratio</div>
                     </div>
                     <div className="p-4 border rounded-lg text-center">
-                      <div className="text-2xl font-bold text-destructive">{selectedBacktest.performance.maxDrawdown}%</div>
+                      <div className="text-2xl font-bold text-destructive">
+                        {backtestResults?.metrics.maxDrawdown 
+                          ? (backtestResults.metrics.maxDrawdown * 100).toFixed(2)
+                          : selectedBacktest.performance.maxDrawdown}%
+                      </div>
                       <div className="text-sm text-muted-foreground">Max Drawdown</div>
                     </div>
                     <div className="p-4 border rounded-lg text-center">
-                      <div className="text-2xl font-bold">{selectedBacktest.performance.winRate}%</div>
+                      <div className="text-2xl font-bold">
+                        {backtestResults?.metrics.winRate 
+                          ? (backtestResults.metrics.winRate * 100).toFixed(1)
+                          : selectedBacktest.performance.winRate}%
+                      </div>
                       <div className="text-sm text-muted-foreground">Win Rate</div>
                     </div>
                   </div>
@@ -589,7 +595,7 @@ export const StrategyTestingLab = () => {
               </TabsContent>
 
               <TabsContent value="performance" className="space-y-6">
-                {selectedBacktest.status === 'completed' ? (
+                {selectedBacktest?.status === 'completed' ? (
                   <>
                     {/* Key Performance Metrics */}
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -598,42 +604,54 @@ export const StrategyTestingLab = () => {
                           <Target className="w-4 h-4 text-chart-1" />
                           <span className="text-sm text-muted-foreground">Total Trades</span>
                         </div>
-                        <div className="text-2xl font-bold">{selectedBacktest.performance.totalTrades}</div>
+                        <div className="text-2xl font-bold">
+                          {backtestResults?.metrics.totalTrades ?? selectedBacktest.performance.totalTrades}
+                        </div>
                       </div>
                       <div className="p-4 border rounded-lg">
                         <div className="flex items-center gap-2 mb-1">
                           <TrendingUp className="w-4 h-4 text-success" />
-                          <span className="text-sm text-muted-foreground">Average Win</span>
+                          <span className="text-sm text-muted-foreground">Winning Trades</span>
                         </div>
-                        <div className="text-2xl font-bold text-success">+{selectedBacktest.performance.avgWin}%</div>
+                        <div className="text-2xl font-bold text-success">
+                          {backtestResults?.metrics.winningTrades ?? Math.round(selectedBacktest.performance.totalTrades * selectedBacktest.performance.winRate / 100)}
+                        </div>
                       </div>
                       <div className="p-4 border rounded-lg">
                         <div className="flex items-center gap-2 mb-1">
                           <TrendingDown className="w-4 h-4 text-destructive" />
-                          <span className="text-sm text-muted-foreground">Average Loss</span>
+                          <span className="text-sm text-muted-foreground">Losing Trades</span>
                         </div>
-                        <div className="text-2xl font-bold text-destructive">{selectedBacktest.performance.avgLoss}%</div>
+                        <div className="text-2xl font-bold text-destructive">
+                          {backtestResults?.metrics.losingTrades ?? (selectedBacktest.performance.totalTrades - Math.round(selectedBacktest.performance.totalTrades * selectedBacktest.performance.winRate / 100))}
+                        </div>
                       </div>
                       <div className="p-4 border rounded-lg">
                         <div className="flex items-center gap-2 mb-1">
                           <Activity className="w-4 h-4 text-chart-2" />
                           <span className="text-sm text-muted-foreground">Profit Factor</span>
                         </div>
-                        <div className="text-2xl font-bold">{selectedBacktest.performance.profitFactor}</div>
+                        <div className="text-2xl font-bold">
+                          {backtestResults?.metrics.profitFactor?.toFixed(2) ?? 'N/A'}
+                        </div>
                       </div>
                       <div className="p-4 border rounded-lg">
                         <div className="flex items-center gap-2 mb-1">
                           <Percent className="w-4 h-4 text-chart-3" />
                           <span className="text-sm text-muted-foreground">Win Rate</span>
                         </div>
-                        <div className="text-2xl font-bold">{selectedBacktest.performance.winRate}%</div>
+                        <div className="text-2xl font-bold">
+                          {backtestResults?.metrics.winRate ? (backtestResults.metrics.winRate * 100).toFixed(1) : selectedBacktest.performance.winRate}%
+                        </div>
                       </div>
                       <div className="p-4 border rounded-lg">
                         <div className="flex items-center gap-2 mb-1">
                           <BarChart3 className="w-4 h-4 text-chart-4" />
                           <span className="text-sm text-muted-foreground">Sharpe Ratio</span>
                         </div>
-                        <div className="text-2xl font-bold">{selectedBacktest.performance.sharpeRatio}</div>
+                        <div className="text-2xl font-bold">
+                          {backtestResults?.metrics.sharpeRatio?.toFixed(2) ?? selectedBacktest.performance.sharpeRatio}
+                        </div>
                       </div>
                     </div>
 
@@ -651,19 +669,18 @@ export const StrategyTestingLab = () => {
                       <CardContent>
                         <div className="h-80">
                           <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={getPerformanceEvolution(selectedBacktest.id)}>
+                            <AreaChart data={getPerformanceEvolution(selectedBacktest?.id ?? '', backtestResults?.equityCurve, backtestResults?.metadata.initialCapital, backtestResults?.metrics)}>
                               <CartesianGrid strokeDasharray="3 3" />
                               <XAxis 
                                 dataKey="date" 
                                 tick={{ fontSize: 12 }}
                                 tickFormatter={(value) => {
-                                  const [year, month] = value.split('-');
-                                  return `${month}/${year.slice(2)}`;
+                                  return value; // Use the formatted date directly (MM/DD)
                                 }}
                               />
                               <YAxis tick={{ fontSize: 12 }} />
-                              <Tooltip 
-                                content={({ active, payload, label }) => {
+                              <RechartsTooltip 
+                                content={({ active, payload, label }: any) => {
                                   if (active && payload && payload.length) {
                                     const data = payload[0].payload;
                                     return (
@@ -687,8 +704,8 @@ export const StrategyTestingLab = () => {
                                 type="monotone" 
                                 dataKey="cumulativeReturn" 
                                 stroke="hsl(var(--success))" 
-                                fill="hsl(var(--success))" 
-                                fillOpacity={0.2}
+                                fill="hsl(var(--primary))" 
+                                fillOpacity={0.8}
                                 strokeWidth={2}
                               />
                             </AreaChart>
@@ -710,18 +727,17 @@ export const StrategyTestingLab = () => {
                         <CardContent>
                           <div className="h-48">
                             <ResponsiveContainer width="100%" height="100%">
-                              <AreaChart data={getPerformanceEvolution(selectedBacktest.id)}>
+                              <AreaChart data={getPerformanceEvolution(selectedBacktest.id, backtestResults?.equityCurve, backtestResults?.metadata.initialCapital, backtestResults?.metrics)}>
                                 <CartesianGrid strokeDasharray="3 3" />
                                 <XAxis 
                                   dataKey="date" 
                                   tick={{ fontSize: 12 }}
                                   tickFormatter={(value) => {
-                                    const [year, month] = value.split('-');
-                                    return `${month}/${year.slice(2)}`;
+                                    return value; // Use the formatted date directly (MM/DD)
                                   }}
                                 />
                                 <YAxis tick={{ fontSize: 12 }} />
-                                <Tooltip />
+                                <RechartsTooltip />
                                 <Area 
                                   type="monotone" 
                                   dataKey="drawdown" 
@@ -747,18 +763,17 @@ export const StrategyTestingLab = () => {
                         <CardContent>
                           <div className="h-48">
                             <ResponsiveContainer width="100%" height="100%">
-                              <LineChart data={getPerformanceEvolution(selectedBacktest.id)}>
+                              <LineChart data={getPerformanceEvolution(selectedBacktest.id, backtestResults?.equityCurve, backtestResults?.metadata.initialCapital, backtestResults?.metrics)}>
                                 <CartesianGrid strokeDasharray="3 3" />
                                 <XAxis 
                                   dataKey="date" 
                                   tick={{ fontSize: 12 }}
                                   tickFormatter={(value) => {
-                                    const [year, month] = value.split('-');
-                                    return `${month}/${year.slice(2)}`;
+                                    return value; // Use the formatted date directly (MM/DD)
                                   }}
                                 />
                                 <YAxis tick={{ fontSize: 12 }} />
-                                <Tooltip />
+                                <RechartsTooltip />
                                 <Line 
                                   type="monotone" 
                                   dataKey="sharpe" 
@@ -768,86 +783,6 @@ export const StrategyTestingLab = () => {
                                 />
                               </LineChart>
                             </ResponsiveContainer>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      {/* Trade Distribution */}
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <Timer className="w-5 h-5" />
-                            Trade Distribution
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-4">
-                            <div className="flex justify-between items-center">
-                              <span className="text-sm text-muted-foreground">Winning Trades</span>
-                              <div className="flex items-center gap-2">
-                                <div className="w-20 bg-secondary rounded-full h-2">
-                                  <div 
-                                    className="bg-success h-2 rounded-full" 
-                                    style={{ width: `${selectedBacktest.performance.winRate}%` }}
-                                  ></div>
-                                </div>
-                                <span className="text-sm font-bold">{Math.round(selectedBacktest.performance.totalTrades * selectedBacktest.performance.winRate / 100)}</span>
-                              </div>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-sm text-muted-foreground">Losing Trades</span>
-                              <div className="flex items-center gap-2">
-                                <div className="w-20 bg-secondary rounded-full h-2">
-                                  <div 
-                                    className="bg-destructive h-2 rounded-full" 
-                                    style={{ width: `${100 - selectedBacktest.performance.winRate}%` }}
-                                  ></div>
-                                </div>
-                                <span className="text-sm font-bold">{selectedBacktest.performance.totalTrades - Math.round(selectedBacktest.performance.totalTrades * selectedBacktest.performance.winRate / 100)}</span>
-                              </div>
-                            </div>
-                            <div className="pt-2 border-t">
-                              <div className="flex justify-between">
-                                <span className="text-sm text-muted-foreground">Avg Trade Duration</span>
-                                <span className="text-sm font-bold">2.3 hours</span>
-                              </div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      {/* Risk Metrics */}
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <Activity className="w-5 h-5" />
-                            Risk Analysis
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-4">
-                            <div className="flex justify-between">
-                              <span className="text-sm text-muted-foreground">Maximum Drawdown</span>
-                              <span className="text-sm font-bold text-destructive">{selectedBacktest.performance.maxDrawdown}%</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-sm text-muted-foreground">Volatility (Annual)</span>
-                              <span className="text-sm font-bold">12.4%</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-sm text-muted-foreground">Value at Risk (95%)</span>
-                              <span className="text-sm font-bold">-2.1%</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-sm text-muted-foreground">Calmar Ratio</span>
-                              <span className="text-sm font-bold">{(selectedBacktest.performance.totalReturn / Math.abs(selectedBacktest.performance.maxDrawdown)).toFixed(2)}</span>
-                            </div>
-                            <div className="flex justify-between border-t pt-2">
-                              <span className="text-sm text-muted-foreground">Risk Score</span>
-                              <Badge variant={selectedBacktest.performance.maxDrawdown > -10 ? 'default' : 'destructive'}>
-                                {selectedBacktest.performance.maxDrawdown > -5 ? 'Low' : selectedBacktest.performance.maxDrawdown > -10 ? 'Medium' : 'High'}
-                              </Badge>
-                            </div>
                           </div>
                         </CardContent>
                       </Card>
@@ -863,12 +798,10 @@ export const StrategyTestingLab = () => {
               </TabsContent>
 
               <TabsContent value="trades">
-                <EnhancedTradeAnalytics selectedStrategy={selectedBacktest.name} />
-              </TabsContent>
-
-
-              <TabsContent value="charts">
-                <AdvancedCharts />
+                <EnhancedTradeAnalytics 
+                  selectedStrategy={selectedBacktest?.name}
+                  trades={backtestResults?.trades}
+                />
               </TabsContent>
             </Tabs>
           </CardContent>

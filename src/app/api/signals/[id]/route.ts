@@ -10,7 +10,7 @@ export async function GET(
     const signalId = parseInt(id);
 
     const signal = await prisma.signals.findUnique({
-      where: { id: signalId },
+      where: { id: signalId.toString() },
     });
 
     return NextResponse.json({

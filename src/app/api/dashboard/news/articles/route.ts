@@ -173,7 +173,9 @@ export async function GET(req: NextRequest) {
         confidence: article.confidence_score
           ? Number(article.confidence_score)
           : null,
-        label: getSentimentLabel(article.sentiment_score),
+        label: getSentimentLabel(
+          article.sentiment_score ? Number(article.sentiment_score) : null
+        ),
       },
       relevanceScore: article.relevance_score
         ? Number(article.relevance_score)

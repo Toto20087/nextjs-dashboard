@@ -1,28 +1,13 @@
-import React, { useState, useMemo } from 'react';
-import { format } from "date-fns";
+import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { ScrollArea } from '../ui/scroll-area';
-import { Calendar } from '../ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import {
   TrendingUp,
-  TrendingDown,
   DollarSign,
-  Clock,
   Target,
-  ZoomIn,
-  ZoomOut,
-  Calendar as CalendarIcon,
-  ArrowUpRight,
-  ArrowDownRight,
-  Filter,
-  Download
 } from 'lucide-react';
 import {
-  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -30,245 +15,62 @@ import {
   Tooltip as RechartsTooltip,
   Legend,
   ResponsiveContainer,
-  ScatterChart,
   Scatter,
-  ReferenceLine,
   ComposedChart,
-  Area,
-  AreaChart
 } from 'recharts';
 import { cn } from '../../lib/utils';
 
-// Enhanced mock trade data with timestamps for charting
-const allTrades = [
-  {
-    id: 'TR_001',
-    strategy: 'Momentum Alpha',
-    symbol: 'AAPL',
-    side: 'BUY',
-    quantity: 100,
-    entryPrice: 185.50,
-    exitPrice: 192.30,
-    entryTime: '2024-01-15T09:30:00',
-    exitTime: '2024-01-16T15:45:00',
-    entryTimestamp: new Date('2024-01-15T09:30:00').getTime(),
-    exitTimestamp: new Date('2024-01-16T15:45:00').getTime(),
-    pnl: 680,
-    pnlPercent: 3.67,
-    duration: '1d 6h 15m',
-    commission: 2.50,
-    slippage: 0.05,
-    status: 'closed',
-    reason: 'take_profit'
-  },
-  {
-    id: 'TR_002',
-    strategy: 'Mean Reversion',
-    symbol: 'TSLA',
-    side: 'SELL',
-    quantity: 50,
-    entryPrice: 245.80,
-    exitPrice: 238.20,
-    entryTime: '2024-01-16T10:15:00',
-    exitTime: '2024-01-16T14:30:00',
-    entryTimestamp: new Date('2024-01-16T10:15:00').getTime(),
-    exitTimestamp: new Date('2024-01-16T14:30:00').getTime(),
-    pnl: 380,
-    pnlPercent: 3.09,
-    duration: '4h 15m',
-    commission: 1.75,
-    slippage: 0.12,
-    status: 'closed',
-    reason: 'take_profit'
-  },
-  {
-    id: 'TR_003',
-    strategy: 'Breakout Pro',
-    symbol: 'NVDA',
-    side: 'BUY',
-    quantity: 25,
-    entryPrice: 520.40,
-    exitPrice: 508.90,
-    entryTime: '2024-01-17T11:00:00',
-    exitTime: '2024-01-17T16:00:00',
-    entryTimestamp: new Date('2024-01-17T11:00:00').getTime(),
-    exitTimestamp: new Date('2024-01-17T16:00:00').getTime(),
-    pnl: -287.50,
-    pnlPercent: -2.21,
-    duration: '5h',
-    commission: 1.25,
-    slippage: 0.08,
-    status: 'closed',
-    reason: 'stop_loss'
-  },
-  {
-    id: 'TR_004',
-    strategy: 'Momentum Alpha',
-    symbol: 'MSFT',
-    side: 'BUY',
-    quantity: 75,
-    entryPrice: 420.15,
-    exitPrice: 435.80,
-    entryTime: '2024-01-18T13:45:00',
-    exitTime: '2024-01-19T10:20:00',
-    entryTimestamp: new Date('2024-01-18T13:45:00').getTime(),
-    exitTimestamp: new Date('2024-01-19T10:20:00').getTime(),
-    pnl: 1173.75,
-    pnlPercent: 3.73,
-    duration: '20h 35m',
-    commission: 2.25,
-    slippage: 0.15,
-    status: 'closed',
-    reason: 'take_profit'
-  },
-  {
-    id: 'TR_005',
-    strategy: 'Mean Reversion',
-    symbol: 'GOOGL',
-    side: 'SELL',
-    quantity: 30,
-    entryPrice: 142.90,
-    exitPrice: 138.45,
-    entryTime: '2024-01-19T09:00:00',
-    exitTime: '2024-01-19T15:30:00',
-    entryTimestamp: new Date('2024-01-19T09:00:00').getTime(),
-    exitTimestamp: new Date('2024-01-19T15:30:00').getTime(),
-    pnl: 133.50,
-    pnlPercent: 3.11,
-    duration: '6h 30m',
-    commission: 1.50,
-    slippage: 0.07,
-    status: 'closed',
-    reason: 'take_profit'
-  },
-  {
-    id: 'TR_006',
-    strategy: 'Breakout Pro',
-    symbol: 'AMD',
-    side: 'BUY',
-    quantity: 80,
-    entryPrice: 145.20,
-    exitPrice: 141.30,
-    entryTime: '2024-01-20T10:30:00',
-    exitTime: '2024-01-20T14:15:00',
-    entryTimestamp: new Date('2024-01-20T10:30:00').getTime(),
-    exitTimestamp: new Date('2024-01-20T14:15:00').getTime(),
-    pnl: -312.00,
-    pnlPercent: -2.69,
-    duration: '3h 45m',
-    commission: 2.00,
-    slippage: 0.10,
-    status: 'closed',
-    reason: 'stop_loss'
-  }
-];
-
-// Mock price data for the chart
-const generatePriceData = () => {
-  const baseDate = new Date('2024-01-15T09:00:00');
-  const data = [];
-  
-  for (let i = 0; i < 120; i++) { // 5 days of hourly data
-    const timestamp = new Date(baseDate.getTime() + i * 60 * 60 * 1000);
-    const basePrice = 500 + Math.sin(i * 0.1) * 50 + Math.random() * 20;
-    
-    data.push({
-      timestamp: timestamp.getTime(),
-      time: timestamp.toISOString(),
-      price: basePrice,
-      volume: Math.random() * 1000000 + 500000
-    });
-  }
-  
-  return data;
-};
-
 interface EnhancedTradeAnalyticsProps {
   selectedStrategy?: string;
+  trades?: Array<{
+    symbol: string;
+    timestamp: string;
+    side: "buy" | "sell";
+    quantity: number;
+    price: number;
+    value: number;
+    pnl: number;
+    position_size: number;
+  }>;
 }
 
-export const EnhancedTradeAnalytics = ({ selectedStrategy }: EnhancedTradeAnalyticsProps) => {
-  const [startDate, setStartDate] = useState<Date>();
-  const [endDate, setEndDate] = useState<Date>();
-  const [selectedSymbol, setSelectedSymbol] = useState('ALL');
-  const [selectedTradeType, setSelectedTradeType] = useState('ALL');
-  const [zoomLevel, setZoomLevel] = useState(1);
-  const [useAllTime, setUseAllTime] = useState(true);
+export const EnhancedTradeAnalytics = ({ trades }: EnhancedTradeAnalyticsProps) => {
 
-  const priceData = useMemo(() => generatePriceData(), []);
-
-  // Filter trades based on selections
   const filteredTrades = useMemo(() => {
-    return allTrades.filter(trade => {
-      const symbolMatch = selectedSymbol === 'ALL' || trade.symbol === selectedSymbol;
-      const typeMatch = selectedTradeType === 'ALL' || trade.side === selectedTradeType;
-      const strategyMatch = !selectedStrategy || trade.strategy === selectedStrategy;
-      
-      // Date filtering
-      let dateMatch = true;
-      if (!useAllTime && startDate && endDate) {
-        const tradeDate = new Date(trade.entryTime);
-        dateMatch = tradeDate >= startDate && tradeDate <= endDate;
-      }
-      
-      return symbolMatch && typeMatch && strategyMatch && dateMatch;
-    });
-  }, [selectedSymbol, selectedTradeType, selectedStrategy, startDate, endDate, useAllTime]);
+    if (!trades || trades.length === 0) return [];
+    
+    return trades
+  }, [trades]);
 
-  // Get unique symbols for filter
-  const symbols = [...new Set(allTrades.map(trade => trade.symbol))];
+  // Create price line data from trades
+  const priceData = useMemo(() => {
+    return filteredTrades.map(trade => ({
+      timestamp: new Date(trade.timestamp).getTime(),
+      close: trade.price
+    })).sort((a, b) => a.timestamp - b.timestamp);
+  }, [filteredTrades]);
 
-  // Prepare chart data with buy/sell points
-  const chartData = useMemo(() => {
-    const data = priceData.map(point => ({
-      ...point,
-      buyPoints: [],
-      sellPoints: []
-    }));
+  // Prepare trade data for scatter plots
+  const buyTrades = useMemo(() => {
+    return filteredTrades
+      .filter(t => t.side.toLowerCase() === 'buy')
+      .map(trade => ({
+        ...trade,
+        timestamp: new Date(trade.timestamp).getTime(),
+        price: trade.price
+      }));
+  }, [filteredTrades]);
 
-    filteredTrades.forEach(trade => {
-      // Find closest price data point for entry
-      const entryIndex = data.findIndex(point => 
-        Math.abs(point.timestamp - trade.entryTimestamp) < 60 * 60 * 1000 // within 1 hour
-      );
-      
-      const exitIndex = data.findIndex(point => 
-        Math.abs(point.timestamp - trade.exitTimestamp) < 60 * 60 * 1000
-      );
+  const sellTrades = useMemo(() => {
+    return filteredTrades
+      .filter(t => t.side.toLowerCase() === 'sell')
+      .map(trade => ({
+        ...trade,
+        timestamp: new Date(trade.timestamp).getTime(),
+        price: trade.price
+      }));
+  }, [filteredTrades]);
 
-      if (entryIndex !== -1) {
-        if (trade.side === 'BUY') {
-          data[entryIndex].buyPoints.push({
-            ...trade,
-            y: trade.entryPrice
-          });
-        } else {
-          data[entryIndex].sellPoints.push({
-            ...trade,
-            y: trade.entryPrice
-          });
-        }
-      }
-
-      if (exitIndex !== -1 && exitIndex !== entryIndex) {
-        if (trade.side === 'BUY') {
-          data[exitIndex].sellPoints.push({
-            ...trade,
-            y: trade.exitPrice,
-            isExit: true
-          });
-        } else {
-          data[exitIndex].buyPoints.push({
-            ...trade,
-            y: trade.exitPrice,
-            isExit: true
-          });
-        }
-      }
-    });
-
-    return data;
-  }, [priceData, filteredTrades]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', { 
@@ -277,48 +79,6 @@ export const EnhancedTradeAnalytics = ({ selectedStrategy }: EnhancedTradeAnalyt
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     }).format(amount);
-  };
-
-  const formatPercentage = (value: number) => {
-    const sign = value >= 0 ? '+' : '';
-    return `${sign}${value.toFixed(2)}%`;
-  };
-
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      return (
-        <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
-          <p className="text-sm font-medium">
-            {new Date(label).toLocaleString()}
-          </p>
-          <p className="text-sm">
-            Price: <span className="font-bold">{formatCurrency(data.price)}</span>
-          </p>
-          {data.buyPoints.length > 0 && (
-            <div className="mt-2">
-              <p className="text-sm text-success font-medium">Buy Orders:</p>
-              {data.buyPoints.map((trade: any, idx: number) => (
-                <p key={idx} className="text-xs">
-                  {trade.symbol}: {formatCurrency(trade.y)} ({trade.quantity} shares)
-                </p>
-              ))}
-            </div>
-          )}
-          {data.sellPoints.length > 0 && (
-            <div className="mt-2">
-              <p className="text-sm text-destructive font-medium">Sell Orders:</p>
-              {data.sellPoints.map((trade: any, idx: number) => (
-                <p key={idx} className="text-xs">
-                  {trade.symbol}: {formatCurrency(trade.y)} ({trade.quantity} shares)
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-      );
-    }
-    return null;
   };
 
   const totalPnL = filteredTrades.reduce((sum, trade) => sum + trade.pnl, 0);
@@ -333,101 +93,10 @@ export const EnhancedTradeAnalytics = ({ selectedStrategy }: EnhancedTradeAnalyt
           <h3 className="text-lg font-semibold">Trade Analysis</h3>
           <p className="text-sm text-muted-foreground">Detailed trade execution and performance</p>
         </div>
-        
-        {/* Filter Controls - Wrapped Layout */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant={useAllTime ? "default" : "outline"}
-            size="sm"
-            onClick={() => setUseAllTime(true)}
-          >
-            All Time
-          </Button>
-          
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className={cn(
-                  "justify-start text-left font-normal min-w-[120px]",
-                  !startDate && "text-muted-foreground"
-                )}
-                onClick={() => setUseAllTime(false)}
-              >
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {startDate ? format(startDate, "MMM dd") : <span>Start date</span>}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0 z-50" align="start">
-              <Calendar
-                mode="single"
-                selected={startDate}
-                onSelect={setStartDate}
-                initialFocus
-                className="p-3 pointer-events-auto"
-              />
-            </PopoverContent>
-          </Popover>
-
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className={cn(
-                  "justify-start text-left font-normal min-w-[120px]",
-                  !endDate && "text-muted-foreground"
-                )}
-                onClick={() => setUseAllTime(false)}
-              >
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {endDate ? format(endDate, "MMM dd") : <span>End date</span>}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0 z-50" align="start">
-              <Calendar
-                mode="single"
-                selected={endDate}
-                onSelect={setEndDate}
-                initialFocus
-                className="p-3 pointer-events-auto"
-              />
-            </PopoverContent>
-          </Popover>
-          
-          <Select value={selectedSymbol} onValueChange={setSelectedSymbol}>
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="z-50">
-              <SelectItem value="ALL">All Symbols</SelectItem>
-              {symbols.map(symbol => (
-                <SelectItem key={symbol} value={symbol}>{symbol}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          
-          <Select value={selectedTradeType} onValueChange={setSelectedTradeType}>
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="z-50">
-              <SelectItem value="ALL">All Types</SelectItem>
-              <SelectItem value="BUY">Buy Only</SelectItem>
-              <SelectItem value="SELL">Sell Only</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Button variant="outline" size="sm">
-            <Download className="w-4 h-4 mr-2" />
-            Export
-          </Button>
-        </div>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -472,17 +141,6 @@ export const EnhancedTradeAnalytics = ({ selectedStrategy }: EnhancedTradeAnalyt
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-muted-foreground">Avg Duration</div>
-                <div className="text-xl font-bold">5h 30m</div>
-              </div>
-              <Clock className="w-8 h-8 text-primary" />
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Price Chart */}
@@ -497,48 +155,64 @@ export const EnhancedTradeAnalytics = ({ selectedStrategy }: EnhancedTradeAnalyt
         <CardContent>
           <div className="h-96">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData}>
+              <ComposedChart 
+                data={priceData}
+              >
                 <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                 <XAxis 
                   dataKey="timestamp"
                   type="number"
                   scale="time"
                   domain={['dataMin', 'dataMax']}
-                  tickFormatter={(value) => new Date(value).toLocaleDateString()}
+                  tickFormatter={(value) => {
+                    const date = new Date(value);
+                    return `${date.getMonth() + 1}/${date.getDate()}`;
+                  }}
                 />
-                <YAxis domain={['dataMin - 10', 'dataMax + 10']} />
-                <RechartsTooltip content={<CustomTooltip />} />
+                <YAxis 
+                  domain={['dataMin - 0.2', 'dataMax + 0.2']}
+                  tickFormatter={(value) => `$${value.toFixed(2)}`}
+                />
+                <RechartsTooltip 
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const data = payload[0].payload;
+                      const date = new Date(data.timestamp);
+                      return (
+                        <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
+                          <p className="font-medium">{date.toLocaleDateString()} {date.toLocaleTimeString()}</p>
+                          <p><span className="text-muted-foreground">Price:</span> <span className="font-bold">${data.close?.toFixed(4) || 'N/A'}</span></p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
                 <Legend />
                 
-                {/* Price line */}
+                {/* Price line connecting trade points */}
                 <Line
                   type="monotone"
-                  dataKey="price"
+                  dataKey="close"
                   stroke="hsl(var(--primary))"
                   strokeWidth={2}
                   dot={false}
                   name="Price"
                 />
                 
-                {/* Buy points */}
-                <ScatterChart data={chartData}>
-                  <Scatter
-                    dataKey="buyPoints"
-                    fill="hsl(var(--success))"
-                    name="Buy Orders"
-                    shape="triangle"
-                  />
-                </ScatterChart>
+                <Scatter
+                  dataKey="price"
+                  data={buyTrades}
+                  fill="#22c55e"
+                  name="Buy Orders"
+                />
                 
-                {/* Sell points */}
-                <ScatterChart data={chartData}>
-                  <Scatter
-                    dataKey="sellPoints"
-                    fill="hsl(var(--destructive))"
-                    name="Sell Orders"
-                    shape="triangleDown"
-                  />
-                </ScatterChart>
+                <Scatter
+                  dataKey="price"
+                  data={sellTrades}
+                  fill="#ef4444"
+                  name="Sell Orders"
+                />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -553,33 +227,35 @@ export const EnhancedTradeAnalytics = ({ selectedStrategy }: EnhancedTradeAnalyt
         <CardContent>
           <ScrollArea className="h-96 w-full">
             <div className="space-y-2 pr-4">
-              {allTrades.map((trade) => (
-                <div key={trade.id} className="border border-border rounded-lg p-4 hover:bg-surface/50 transition-colors">
-                  <div className="grid grid-cols-1 md:grid-cols-8 gap-4 items-center">
+              {filteredTrades.map((trade, index) => (
+                <div key={`${trade.symbol}-${trade.timestamp}-${index}`} className="border border-border rounded-lg p-4 hover:bg-surface/50 transition-colors">
+                  <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-center">
                     <div>
                       <div className="font-medium">{trade.symbol}</div>
-                      <div className="text-xs text-muted-foreground">{trade.id}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(trade.timestamp).toLocaleDateString()}
+                      </div>
                     </div>
                     
                     <div className="text-center">
-                      <Badge variant={trade.side === 'BUY' ? 'default' : 'destructive'}>
-                        {trade.side}
+                      <Badge variant={trade.side.toLocaleLowerCase()   === 'buy' ? 'default' : 'destructive'}>
+                        {trade.side.toUpperCase()}
                       </Badge>
                     </div>
                     
                     <div className="text-center">
-                      <div className="text-sm font-medium">{trade.quantity}</div>
+                      <div className="text-sm font-medium">{trade.quantity.toFixed(6)}</div>
                       <div className="text-xs text-muted-foreground">shares</div>
                     </div>
                     
                     <div className="text-center">
-                      <div className="text-sm font-medium">${trade.entryPrice.toFixed(2)}</div>
-                      <div className="text-xs text-muted-foreground">entry</div>
+                      <div className="text-sm font-medium">${trade.price.toFixed(2)}</div>
+                      <div className="text-xs text-muted-foreground">price</div>
                     </div>
                     
                     <div className="text-center">
-                      <div className="text-sm font-medium">${trade.exitPrice.toFixed(2)}</div>
-                      <div className="text-xs text-muted-foreground">exit</div>
+                      <div className="text-sm font-medium">${trade.value.toFixed(2)}</div>
+                      <div className="text-xs text-muted-foreground">value</div>
                     </div>
                     
                     <div className="text-center">
@@ -589,28 +265,7 @@ export const EnhancedTradeAnalytics = ({ selectedStrategy }: EnhancedTradeAnalyt
                       )}>
                         {formatCurrency(trade.pnl)}
                       </div>
-                      <div className={cn(
-                        "text-xs",
-                        trade.pnl >= 0 ? "text-success" : "text-destructive"
-                      )}>
-                        {formatPercentage(trade.pnlPercent)}
-                      </div>
-                    </div>
-                    
-                    <div className="text-center">
-                      <div className="text-sm">{trade.duration}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(trade.entryTime).toLocaleDateString()}
-                      </div>
-                    </div>
-                    
-                    <div className="text-center">
-                      <Badge 
-                        variant={trade.reason === 'take_profit' ? 'default' : 'destructive'}
-                        className="text-xs"
-                      >
-                        {trade.reason.replace('_', ' ')}
-                      </Badge>
+                      <div className="text-xs text-muted-foreground">P&L</div>
                     </div>
                   </div>
                 </div>

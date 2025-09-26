@@ -142,7 +142,12 @@ export async function GET(req: NextRequest) {
 
     // Calculate strategy metrics and format for frontend
     const formattedStrategies = strategies.map((strategy) => {
-      const allocation = strategy.strategy_allocations.find((a) => a.is_active);
+      const totalAllocation = strategy.strategy_allocations
+        .filter((a) => a.is_active)
+        .reduce((sum, a) => sum + Number(a.allocated_capital), 0);
+      const totalAllocationPercentage = strategy.strategy_allocations
+        .filter((a) => a.is_active)
+        .reduce((sum, a) => sum + Number(a.allocation_percentage), 0);
       const latestBacktest = strategy.backtest_runs[0];
       const metrics = latestBacktest?.backtest_metrics[0];
 
@@ -150,10 +155,8 @@ export async function GET(req: NextRequest) {
         id: strategy.id,
         name: strategy.name,
         isActive: strategy.is_active,
-        allocation: allocation ? Number(allocation.allocated_capital) : 0,
-        allocationPercentage: allocation
-          ? Number(allocation.allocation_percentage)
-          : 0,
+        allocation: totalAllocation,
+        allocationPercentage: totalAllocationPercentage,
         performance: metrics?.total_return
           ? Number(metrics.total_return) * 100
           : 0,
@@ -371,12 +374,10 @@ export async function POST(req: NextRequest) {
 
     switch (action) {
       case "approve":
-        // In current schema, approve = activate
         updateData.is_active = true;
         break;
 
       case "reject":
-        // In current schema, reject = deactivate
         updateData.is_active = false;
         break;
 

@@ -1,8 +1,122 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { alpacaDataService } from "@/lib/alpaca/client";
+import { Decimal } from "@prisma/client/runtime/library";
+import type { Prisma } from "@prisma/client";
+import { ApiResponse } from "@/types/api";
 
-export async function GET(req: NextRequest) {
+// Prisma database result types
+type PrismaStrategyAllocation = Prisma.strategy_allocationsGetPayload<{
+  include: {
+    strategies: {
+      select: {
+        id: true;
+        name: true;
+        processed_by_rust: true;
+        is_active: true;
+      };
+    };
+    symbols: {
+      select: {
+        symbol: true;
+        name: true;
+        last_price: true;
+      };
+    };
+  };
+}>;
+
+type PrismaCapitalSnapshot = Prisma.strategy_capital_snapshotsGetPayload<{
+  include: {
+    strategies: {
+      select: {
+        id: true;
+        name: true;
+        processed_by_rust: true;
+      };
+    };
+  };
+}>;
+
+type PrismaPositionCount = {
+  strategy_id: number | null;
+  _count: {
+    id: number;
+  };
+};
+
+// Business logic interfaces
+interface ProcessedStrategy {
+  id: number;
+  name: string;
+  allocated: number;
+  used: number;
+  available: number;
+  performance: string;
+  managed_by: string;
+  positions: number;
+  status: string;
+  utilizationRate: number;
+}
+
+interface CapitalTotals {
+  totalCapital: number;
+  accountCash: number;
+  portfolioValue: number;
+  buyingPower: number;
+  allocated: number;
+  deployed: number;
+  available: number;
+  unallocated: number;
+}
+
+interface RecentAllocation {
+  strategy: string;
+  amount: number;
+  type: "increase" | "decrease";
+  time: string;
+  timestamp: Date;
+}
+
+interface TimeSeriesPoint {
+  date: string;
+  strategyName: string;
+  totalCapital: number;
+  usedCapital: number;
+  realizedPnl: number;
+  unrealizedPnl: number;
+}
+
+interface CapitalSummary {
+  activeStrategies: number;
+  totalStrategies: number;
+  utilizationRate: number;
+  accountUtilization: number;
+}
+
+interface CapitalOverviewResponse {
+  totalCapital: number;
+  accountCash: number;
+  portfolioValue: number;
+  buyingPower: number;
+  allocatedCapital: number;
+  deployedCapital: number;
+  availableCapital: number;
+  unallocatedCapital: number;
+  strategies: ProcessedStrategy[];
+  recentAllocations: RecentAllocation[];
+  snapshots: TimeSeriesPoint[];
+  summary: CapitalSummary;
+}
+
+// Type conversion utilities
+function convertDecimalToNumber(decimal: Decimal | null | undefined): number {
+  return decimal ? Number(decimal.toString()) : 0;
+}
+
+export async function GET(): Promise<
+  NextResponse<ApiResponse<CapitalOverviewResponse>>
+> {
   try {
     // Fetch strategy allocations with related data
     const strategyAllocations = await prisma.strategy_allocations.findMany({
@@ -88,8 +202,10 @@ export async function GET(req: NextRequest) {
     // Calculate totals - this will throw an error if total capital pool is not configured
     const totals = await calculateTotals(strategies);
 
-    // Generate recent allocation changes
-    const recentAllocations = generateRecentAllocations(allSnapshots);
+    // Generate recent allocation changes (cast to the compatible type)
+    const recentAllocations = generateRecentAllocations(
+      allSnapshots as PrismaCapitalSnapshot[]
+    );
 
     // Get latest snapshots for time series
     const timeSeriesSnapshots =
@@ -107,45 +223,47 @@ export async function GET(req: NextRequest) {
         },
       });
 
-    const snapshots = timeSeriesSnapshots.map((snapshot) => ({
-      date: snapshot.created_at.toISOString(),
-      strategyName: snapshot.strategies?.name || "Unknown",
-      totalCapital: Number(snapshot.allocated_capital),
-      usedCapital: Number(snapshot.used_capital),
-      realizedPnl: Number(snapshot.realized_pnl),
-      unrealizedPnl: Number(snapshot.unrealized_pnl),
-    }));
+    const snapshots: TimeSeriesPoint[] = timeSeriesSnapshots.map(
+      (snapshot) => ({
+        date: snapshot.created_at?.toISOString() || "",
+        strategyName: snapshot.strategies?.name || "Unknown",
+        totalCapital: convertDecimalToNumber(snapshot.allocated_capital),
+        usedCapital: convertDecimalToNumber(snapshot.used_capital),
+        realizedPnl: convertDecimalToNumber(snapshot.realized_pnl),
+        unrealizedPnl: convertDecimalToNumber(snapshot.unrealized_pnl),
+      })
+    );
+
+    const response: CapitalOverviewResponse = {
+      // Real Alpaca account data
+      totalCapital: totals.totalCapital,
+      accountCash: totals.accountCash,
+      portfolioValue: totals.portfolioValue,
+      buyingPower: totals.buyingPower,
+      // Strategy allocation data from database
+      allocatedCapital: totals.allocated,
+      deployedCapital: totals.deployed,
+      availableCapital: totals.available,
+      unallocatedCapital: totals.unallocated,
+      strategies,
+      recentAllocations,
+      snapshots,
+      summary: {
+        activeStrategies: strategies.filter((s) => s?.status === "active")
+          .length,
+        totalStrategies: strategies.length,
+        utilizationRate:
+          totals.allocated > 0 ? (totals.deployed / totals.allocated) * 100 : 0,
+        accountUtilization:
+          totals.totalCapital > 0
+            ? (totals.allocated / totals.totalCapital) * 100
+            : 0,
+      },
+    };
 
     return NextResponse.json({
       success: true,
-      data: {
-        // Real Alpaca account data
-        totalCapital: totals.totalCapital,
-        accountCash: totals.accountCash,
-        portfolioValue: totals.portfolioValue,
-        buyingPower: totals.buyingPower,
-        // Strategy allocation data from database
-        allocatedCapital: totals.allocated,
-        deployedCapital: totals.deployed,
-        availableCapital: totals.available,
-        unallocatedCapital: totals.unallocated,
-        strategies,
-        recentAllocations,
-        snapshots,
-        summary: {
-          activeStrategies: strategies.filter((s) => s.status === "active")
-            .length,
-          totalStrategies: strategies.length,
-          utilizationRate:
-            totals.allocated > 0
-              ? (totals.deployed / totals.allocated) * 100
-              : 0,
-          accountUtilization:
-            totals.totalCapital > 0
-              ? (totals.allocated / totals.totalCapital) * 100
-              : 0,
-        },
-      },
+      data: response,
     });
   } catch (error) {
     console.error("Capital overview API error:", error);
@@ -164,12 +282,12 @@ export async function GET(req: NextRequest) {
 }
 
 function processStrategiesData(
-  allocations: any[],
-  snapshots: any[],
-  positionCounts: any[]
-) {
+  allocations: PrismaStrategyAllocation[],
+  snapshots: PrismaCapitalSnapshot[],
+  positionCounts: PrismaPositionCount[]
+): ProcessedStrategy[] {
   // Group allocations by strategy
-  const strategyGroups: { [strategyId: number]: any[] } = {};
+  const strategyGroups: Record<number, PrismaStrategyAllocation[]> = {};
 
   allocations.forEach((allocation) => {
     const strategyId = allocation.strategy_id;
@@ -180,7 +298,7 @@ function processStrategiesData(
   });
 
   // Process each strategy
-  return Object.entries(strategyGroups)
+  const results = Object.entries(strategyGroups)
     .map(([strategyIdStr, strategyAllocations]) => {
       const strategyId = parseInt(strategyIdStr);
       const strategy = strategyAllocations[0]?.strategies;
@@ -189,14 +307,14 @@ function processStrategiesData(
 
       // Calculate totals for this strategy
       const allocated = strategyAllocations.reduce(
-        (sum, alloc) => sum + Number(alloc.allocated_capital),
+        (sum, alloc) => sum + convertDecimalToNumber(alloc.allocated_capital),
         0
       );
-      const deployed = strategyAllocations.reduce(
-        (sum, alloc) => sum + Number(alloc.used_capital || 0),
+      const used = strategyAllocations.reduce(
+        (sum, alloc) => sum + convertDecimalToNumber(alloc.used_capital),
         0
       );
-      const available = allocated - deployed;
+      const available = allocated - used;
 
       // Get position count
       const positionData = positionCounts.find(
@@ -214,51 +332,58 @@ function processStrategiesData(
         id: strategy.id,
         name: strategy.name,
         allocated,
-        deployed,
+        used,
         available,
         performance: `${performance >= 0 ? "+" : ""}${performance.toFixed(1)}%`,
         managed_by: strategy.processed_by_rust ? "rust" : "n8n",
         positions,
         status: strategy.is_active ? "active" : "inactive",
-        utilizationRate: allocated > 0 ? (deployed / allocated) * 100 : 0,
+        utilizationRate: allocated > 0 ? (used / allocated) * 100 : 0,
       };
     })
-    .filter(Boolean);
+    .filter((strategy): strategy is ProcessedStrategy => strategy !== null);
+
+  return results;
 }
 
-function calculateStrategyPerformance(snapshots: any[]): number {
+function calculateStrategyPerformance(
+  snapshots: PrismaCapitalSnapshot[]
+): number {
   if (snapshots.length < 2) return 0;
 
   // Sort by date to get oldest and newest
-  const sortedSnapshots = snapshots.sort(
-    (a, b) =>
-      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
+  const sortedSnapshots = snapshots.sort((a, b) => {
+    const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return aTime - bTime;
+  });
 
   const oldest = sortedSnapshots[0];
   const newest = sortedSnapshots[sortedSnapshots.length - 1];
 
   // Use allocated_capital instead of total_capital (which doesn't exist)
-  const oldValue = Number(oldest.allocated_capital || 0);
+  const oldValue = convertDecimalToNumber(oldest.allocated_capital);
   const newValue =
-    Number(newest.allocated_capital || 0) +
-    Number(newest.realized_pnl || 0) +
-    Number(newest.unrealized_pnl || 0);
+    convertDecimalToNumber(newest.allocated_capital) +
+    convertDecimalToNumber(newest.realized_pnl) +
+    convertDecimalToNumber(newest.unrealized_pnl);
 
   // Prevent division by zero
   if (oldValue === 0 || isNaN(oldValue) || isNaN(newValue)) return 0;
 
   const performance = ((newValue - oldValue) / oldValue) * 100;
-  
+
   // Return 0 if result is NaN or Infinity
   return isFinite(performance) ? performance : 0;
 }
 
-async function calculateTotals(strategies: any[]) {
+async function calculateTotals(
+  strategies: ProcessedStrategy[]
+): Promise<CapitalTotals> {
   const totals = strategies.reduce(
     (acc, strategy) => ({
       allocated: acc.allocated + (strategy?.allocated || 0),
-      deployed: acc.deployed + (strategy?.deployed || 0),
+      deployed: acc.deployed + (strategy?.used || 0),
       available: acc.available + (strategy?.available || 0),
     }),
     { allocated: 0, deployed: 0, available: 0 }
@@ -279,11 +404,13 @@ async function calculateTotals(strategies: any[]) {
   };
 }
 
-function generateRecentAllocations(snapshots: any[]): any[] {
-  const recentChanges: any[] = [];
+function generateRecentAllocations(
+  snapshots: PrismaCapitalSnapshot[]
+): RecentAllocation[] {
+  const recentChanges: RecentAllocation[] = [];
 
   // Group snapshots by strategy to detect allocation changes
-  const strategySnapshots: { [strategyName: string]: any[] } = {};
+  const strategySnapshots: Record<string, PrismaCapitalSnapshot[]> = {};
 
   snapshots.forEach((snapshot) => {
     const strategyName = snapshot.strategies?.name || "Unknown";
@@ -298,18 +425,21 @@ function generateRecentAllocations(snapshots: any[]): any[] {
     if (snapshots.length < 2) return;
 
     // Sort by date
-    snapshots.sort(
-      (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
+    snapshots.sort((a, b) => {
+      const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return bTime - aTime;
+    });
 
     for (let i = 0; i < Math.min(snapshots.length - 1, 4); i++) {
       const current = snapshots[i];
       const previous = snapshots[i + 1];
 
       // Use allocated_capital instead of total_capital
-      const currentCapital = Number(current.allocated_capital || 0);
-      const previousCapital = Number(previous.allocated_capital || 0);
+      const currentCapital = convertDecimalToNumber(current.allocated_capital);
+      const previousCapital = convertDecimalToNumber(
+        previous.allocated_capital
+      );
       const change = currentCapital - previousCapital;
 
       // Only include significant changes (> $1000)
@@ -318,8 +448,8 @@ function generateRecentAllocations(snapshots: any[]): any[] {
           strategy: strategyName,
           amount: change,
           type: change > 0 ? "increase" : "decrease",
-          time: getTimeAgo(current.created_at),
-          timestamp: current.created_at,
+          time: getTimeAgo(current.created_at || new Date()),
+          timestamp: current.created_at || new Date(),
         });
       }
     }

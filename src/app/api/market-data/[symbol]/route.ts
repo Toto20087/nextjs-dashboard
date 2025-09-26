@@ -9,8 +9,6 @@ export async function GET(
     const { symbol: symbolParam } = await params;
     const symbol = symbolParam.toUpperCase();
 
-    console.log("Symbol: ", symbol);
-
     const latestBar = await alpacaDataService.getLatestBar(symbol);
 
     return NextResponse.json({

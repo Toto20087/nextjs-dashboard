@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
         extendedHours,
       });
     } catch (error) {
+      console.error("Failed to fetch portfolio history:", error);
       portfolioHistory = {
         timestamp: [],
         equity: [],

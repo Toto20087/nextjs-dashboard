@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db/prisma";
+import { ApiResponse } from "@/types/api";
 
-export async function GET(req: NextRequest) {
+export async function GET(
+  req: NextRequest
+): Promise<NextResponse<ApiResponse>> {
   let dbUser;
   let user;
   try {
@@ -96,19 +99,25 @@ export async function GET(req: NextRequest) {
 
 // Railway API GraphQL client
 async function railwayGraphQLRequest(query: string, variables: any = {}) {
-  const railwayToken = process.env.RAILWAY_API_KEY;
+  const projectToken = process.env.RAILWAY_PROJECT_TOKEN;
+  const projectId = process.env.RAILWAY_PROJECT_ID;
 
-  if (!railwayToken) {
-    throw new Error("RAILWAY_API_KEY environment variable not configured");
+  if (!projectToken || !projectId) {
+    throw new Error(
+      "RAILWAY_PROJECT_TOKEN and RAILWAY_PROJECT_ID environment variables must be configured"
+    );
   }
 
   try {
+    // Use Project-Access-Token header exactly like the working Postman collection
+    const headers: Record<string, string> = {
+      "Project-Access-Token": projectToken,
+      "Content-Type": "application/json",
+    };
+
     const response = await fetch("https://backboard.railway.com/graphql/v2", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${railwayToken}`,
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         query,
         variables,
@@ -116,8 +125,9 @@ async function railwayGraphQLRequest(query: string, variables: any = {}) {
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
       throw new Error(
-        `Railway API HTTP ${response.status}: ${response.statusText}`
+        `Railway API HTTP ${response.status}: ${response.statusText}. Response: ${errorText}`
       );
     }
 
@@ -138,32 +148,28 @@ async function railwayGraphQLRequest(query: string, variables: any = {}) {
 // Get Railway deployment and infrastructure health
 async function getRailwayHealth() {
   try {
-    // Get project environments and their deployment status
+    const projectId = process.env.RAILWAY_PROJECT_ID;
+
+    // Use the exact query from your working Postman collection
     const query = `
-      query GetProjectHealth {
-        me {
-          projects(first: 10) {
+      query {
+        project(id: "${projectId}") {
+          id
+          name
+          description
+          createdAt
+          environments {
             edges {
               node {
                 id
                 name
-                environments(first: 5) {
+                createdAt
+                deployments {
                   edges {
                     node {
                       id
-                      name
-                      serviceInstances(first: 10) {
-                        edges {
-                          node {
-                            serviceName
-                            latestDeployment {
-                              id
-                              status
-                              createdAt
-                            }
-                          }
-                        }
-                      }
+                      status
+                      createdAt
                     }
                   }
                 }
@@ -176,10 +182,10 @@ async function getRailwayHealth() {
 
     const data = await railwayGraphQLRequest(query);
 
-    if (!data.me?.projects?.edges) {
+    if (!data.project) {
       return {
         status: "unknown",
-        error: "No projects found in Railway account",
+        error: "Project not found or token lacks access",
         projects: [],
         summary: {
           totalServices: 0,
@@ -191,36 +197,36 @@ async function getRailwayHealth() {
       };
     }
 
-    const projects = data.me.projects.edges.map((projectEdge: any) => {
-      const project = projectEdge.node;
-      const environments = project.environments?.edges || [];
+    const project = data.project;
+    const environments = project.environments?.edges || [];
 
-      return {
-        id: project.id,
-        name: project.name,
-        environments: environments.map((envEdge: any) => {
-          const env = envEdge.node;
-          const services = env.serviceInstances?.edges || [];
+    // Transform Railway's deployment structure to match expected service format
+    const formattedProject = {
+      id: project.id,
+      name: project.name,
+      environments: environments.map((envEdge: any) => {
+        const env = envEdge.node;
+        const deployments = env.deployments?.edges || [];
 
-          return {
-            id: env.id,
-            name: env.name,
-            services: services.map((serviceEdge: any) => {
-              const service = serviceEdge.node;
-              const deployment = service.latestDeployment;
+        return {
+          id: env.id,
+          name: env.name,
+          services: deployments.map((deploymentEdge: any) => {
+            const deployment = deploymentEdge.node;
 
-              return {
-                name: service.serviceName,
-                deploymentId: deployment?.id,
-                status: deployment?.status || "UNKNOWN",
-                lastDeployed: deployment?.createdAt,
-                isHealthy: ["ACTIVE", "SUCCESS"].includes(deployment?.status),
-              };
-            }),
-          };
-        }),
-      };
-    });
+            return {
+              name: `deployment-${deployment.id.substring(0, 8)}`, // Create service name from deployment ID
+              deploymentId: deployment.id,
+              status: deployment.status || "UNKNOWN",
+              lastDeployed: deployment.createdAt,
+              isHealthy: ["ACTIVE", "SUCCESS", "DEPLOYED"].includes(
+                deployment.status?.toUpperCase()
+              ),
+            };
+          }),
+        };
+      }),
+    };
 
     // Calculate overall health statistics
     let totalServices = 0;
@@ -228,15 +234,16 @@ async function getRailwayHealth() {
     let deployingServices = 0;
     let failedServices = 0;
 
-    projects.forEach((project) => {
-      project.environments.forEach((env: any) => {
-        env.services.forEach((service: any) => {
-          totalServices++;
-          if (service.isHealthy) healthyServices++;
-          else if (service.status === "DEPLOYING") deployingServices++;
-          else if (["FAILED", "CRASHED"].includes(service.status))
-            failedServices++;
-        });
+    formattedProject.environments.forEach((env: any) => {
+      env.services.forEach((service: any) => {
+        totalServices++;
+        if (service.isHealthy) healthyServices++;
+        else if (service.status?.toUpperCase() === "DEPLOYING")
+          deployingServices++;
+        else if (
+          ["FAILED", "CRASHED", "ERROR"].includes(service.status?.toUpperCase())
+        )
+          failedServices++;
       });
     });
 
@@ -245,13 +252,13 @@ async function getRailwayHealth() {
         ? "critical"
         : deployingServices > 0
         ? "deploying"
-        : healthyServices === totalServices
+        : healthyServices === totalServices && totalServices > 0
         ? "healthy"
         : "warning";
 
     return {
       status: overallStatus,
-      projects,
+      projects: [formattedProject], // Wrap single project in array for consistency
       summary: {
         totalServices,
         healthyServices,
@@ -302,12 +309,14 @@ async function getDatabaseHealth() {
       status: "healthy",
       responseTime,
       connections: {
-        active: metrics?.counters?.find(
-          (c: any) => c.key === "db.client.connections.active"
-        )?.value || 0,
-        idle: metrics?.counters?.find(
-          (c: any) => c.key === "db.client.connections.idle"
-        )?.value || 0,
+        active:
+          metrics?.counters?.find(
+            (c: any) => c.key === "db.client.connections.active"
+          )?.value || 0,
+        idle:
+          metrics?.counters?.find(
+            (c: any) => c.key === "db.client.connections.idle"
+          )?.value || 0,
       },
       lastChecked: new Date().toISOString(),
     };

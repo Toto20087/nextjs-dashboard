@@ -1,40 +1,53 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { currentUser } from '@clerk/nextjs/server';
+import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await currentUser();
-    
-    if (!user) {
+    const body = await req.json();
+    const { url, generate_signal } = body;
+
+    if (!url) {
       return NextResponse.json(
-        { success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
-        { status: 401 }
+        {
+          success: false,
+          error: { code: "MISSING_URL", message: "URL is required" },
+        },
+        { status: 400 }
       );
     }
 
-    const body = await req.json();
+    // Forward the request to your Railway endpoint with the access key
+    const response = await fetch(process.env.N8N_BASE_URL || "", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Access-Key": process.env.ACCESS_AUTHORIZATION_KEY || "",
+      },
+      body: JSON.stringify({ url, generate_signal }),
+    });
 
-    // TODO: Implement news analysis integration
-    // Data Source: N8N workflow integration for news analysis
+    if (!response.ok) {
+      throw new Error(`Railway API returned ${response.status}`);
+    }
+
+    const data = await response.json();
 
     return NextResponse.json({
       success: true,
       data: {
-        analysisId: crypto.randomUUID(),
-        status: 'processing',
-        summary: undefined,
-        sentiment: undefined,
-        relevantSymbols: undefined,
-        marketImpact: undefined,
+        message: "News URL submitted successfully",
+        url,
+        response: data,
       },
     });
   } catch (error) {
+    console.error("Error forwarding news URL:", error);
     return NextResponse.json(
       {
         success: false,
         error: {
-          code: 'NEWS_ANALYSIS_ERROR',
-          message: 'Failed to analyze news',
+          code: "NEWS_URL_FORWARD_ERROR",
+          message: "Failed to submit news URL",
+          details: error instanceof Error ? error.message : "Unknown error",
         },
       },
       { status: 500 }

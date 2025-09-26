@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { alpacaDataService } from "@/lib/alpaca/client";
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     // Fetch positions from Alpaca
     const positions = await alpacaDataService.getPositions();
